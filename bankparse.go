@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/szonov/bankparse/bankexchange"
 	"github.com/szonov/bankparse/payment"
@@ -20,7 +21,16 @@ const (
 	FormatClientBankExchange Format = "1c_client_bank_exchange"
 )
 
-var ErrUnknownFormat = errors.New("unknown bank file format")
+var (
+	ErrUnknownFormat            = errors.New("unknown bank file format")
+	ErrStatementInfoNotDetected = errors.New("statement info not detected")
+	ErrStatementInfoAmbiguous   = errors.New("ambiguous statement info")
+)
+
+type StatementInfo struct {
+	AccountNumber string `json:"account_number"`
+	BankName      string `json:"bank_name,omitempty"`
+}
 
 const detectionProbeSize = 4096
 
@@ -49,6 +59,62 @@ func Open(reader io.ReaderAt, size int64) (payment.Walker, error) {
 		return nil, err
 	}
 	return OpenFormat(format, reader, size)
+}
+
+// DetectStatementInfo extracts statement-wide metadata without changing any
+// sequential position maintained by reader.
+func DetectStatementInfo(reader io.ReaderAt, size int64) (StatementInfo, error) {
+	format, err := DetectFormat(reader, size)
+	if err != nil {
+		return StatementInfo{}, err
+	}
+	switch format {
+	case FormatPDF:
+		pdfReader, err := pdf.NewReader(reader, size)
+		if err != nil {
+			return StatementInfo{}, fmt.Errorf("open PDF: %w", err)
+		}
+		info, err := paymentpdf.DetectStatementInfo(pdfReader)
+		if errors.Is(err, paymentpdf.ErrStatementInfoNotDetected) {
+			return StatementInfo{}, ErrStatementInfoNotDetected
+		}
+		if errors.Is(err, paymentpdf.ErrAmbiguousStatementInfo) {
+			return StatementInfo{}, ErrStatementInfoAmbiguous
+		}
+		if err != nil {
+			return StatementInfo{}, err
+		}
+		return StatementInfo{AccountNumber: info.AccountNumber, BankName: info.BankName}, nil
+	case FormatClientBankExchange:
+		info, err := bankexchange.DetectInfo(io.NewSectionReader(reader, 0, size))
+		if errors.Is(err, bankexchange.ErrStatementInfoNotDetected) {
+			return StatementInfo{}, ErrStatementInfoNotDetected
+		}
+		if errors.Is(err, bankexchange.ErrAmbiguousAccounts) {
+			return StatementInfo{}, ErrStatementInfoAmbiguous
+		}
+		if err != nil {
+			return StatementInfo{}, fmt.Errorf("read 1CClientBankExchange info: %w", err)
+		}
+		if normalizeStatementAccount(info.Account) == "" {
+			return StatementInfo{}, fmt.Errorf("invalid statement account %q", info.Account)
+		}
+		return StatementInfo{AccountNumber: info.Account, BankName: strings.Join(strings.Fields(info.Sender), " ")}, nil
+	default:
+		return StatementInfo{}, ErrUnknownFormat
+	}
+}
+
+func normalizeStatementAccount(account string) string {
+	if len(account) != 20 {
+		return ""
+	}
+	for _, r := range account {
+		if r < '0' || r > '9' {
+			return ""
+		}
+	}
+	return account
 }
 
 // OpenFormat creates a parser for an explicitly selected format.

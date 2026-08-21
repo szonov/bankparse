@@ -3,6 +3,7 @@ package bankparse
 import (
 	"bytes"
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/szonov/bankparse/payment"
@@ -25,6 +26,77 @@ func TestDetectFormat(t *testing.T) {
 				t.Fatalf("DetectFormat() = %q, %v; want %q", format, err, test.format)
 			}
 		})
+	}
+}
+
+func TestDetectStatementInfoClientBankExchange(t *testing.T) {
+	data := []byte("1CClientBankExchange\nОтправитель=  АО   Универсальный Банк  \nРасчСчет=40000000000000000002\nКонецФайла\n")
+	reader := bytes.NewReader(data)
+	if _, err := reader.Seek(7, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	got, err := DetectStatementInfo(reader, int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := StatementInfo{AccountNumber: "40000000000000000002", BankName: "АО Универсальный Банк"}
+	if got != want {
+		t.Fatalf("DetectStatementInfo() = %#v; want %#v", got, want)
+	}
+	position, _ := reader.Seek(0, io.SeekCurrent)
+	if position != 7 {
+		t.Fatalf("position = %d; want 7", position)
+	}
+	parser, err := Open(reader, int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := parser.WalkDocuments(func(payment.Document) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDetectStatementInfoClientBankExchangeSections(t *testing.T) {
+	for name, body := range map[string]string{
+		"one":  "СекцияРасчСчет\nРасчСчет=40000000000000000002\nКонецРасчСчет\n",
+		"same": "СекцияРасчСчет\nРасчСчет=40000000000000000002\nКонецРасчСчет\nСекцияРасчСчет\nРасчСчет=40000000000000000002\nКонецРасчСчет\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			data := []byte("1CClientBankExchange\n" + body + "КонецФайла\n")
+			got, err := DetectStatementInfo(bytes.NewReader(data), int64(len(data)))
+			if err != nil || got.AccountNumber != "40000000000000000002" || got.BankName != "" {
+				t.Fatalf("DetectStatementInfo() = %#v, %v", got, err)
+			}
+		})
+	}
+}
+
+func TestDetectStatementInfoErrors(t *testing.T) {
+	if _, err := DetectStatementInfo(nil, 0); err == nil {
+		t.Fatal("nil reader unexpectedly succeeded")
+	}
+	if _, err := DetectStatementInfo(bytes.NewReader(nil), -1); err == nil {
+		t.Fatal("negative size unexpectedly succeeded")
+	}
+	unknown := []byte("unknown")
+	if _, err := DetectStatementInfo(bytes.NewReader(unknown), int64(len(unknown))); !errors.Is(err, ErrUnknownFormat) {
+		t.Fatalf("unknown format error = %v", err)
+	}
+	ambiguous := []byte("1CClientBankExchange\nСекцияРасчСчет\nРасчСчет=40000000000000000002\nКонецРасчСчет\nСекцияРасчСчет\nРасчСчет=40000000000000000001\nКонецРасчСчет\nКонецФайла\n")
+	if _, err := DetectStatementInfo(bytes.NewReader(ambiguous), int64(len(ambiguous))); !errors.Is(err, ErrStatementInfoAmbiguous) {
+		t.Fatalf("ambiguous error = %v", err)
+	}
+	invalid := []byte("1CClientBankExchange\nРасчСчет=123\nКонецФайла\n")
+	if _, err := DetectStatementInfo(bytes.NewReader(invalid), int64(len(invalid))); err == nil {
+		t.Fatal("invalid account unexpectedly succeeded")
+	}
+	missing := []byte("1CClientBankExchange\nОтправитель=Не банк\nКонецФайла\n")
+	if _, err := DetectStatementInfo(bytes.NewReader(missing), int64(len(missing))); !errors.Is(err, ErrStatementInfoNotDetected) {
+		t.Fatalf("missing info error = %v", err)
+	}
+	damagedPDF := []byte("%PDF-1.7\nnot a PDF")
+	if _, err := DetectStatementInfo(bytes.NewReader(damagedPDF), int64(len(damagedPDF))); err == nil || errors.Is(err, ErrStatementInfoNotDetected) {
+		t.Fatalf("damaged PDF error = %v", err)
 	}
 }
 

@@ -18,7 +18,11 @@ import (
 	"golang.org/x/text/transform"
 )
 
-var ErrInvalidFormat = errors.New("invalid 1CClientBankExchange format")
+var (
+	ErrInvalidFormat            = errors.New("invalid 1CClientBankExchange format")
+	ErrStatementInfoNotDetected = errors.New("statement info not detected")
+	ErrAmbiguousAccounts        = errors.New("ambiguous statement accounts")
+)
 
 type Info struct {
 	Version, Encoding, Sender, Account string
@@ -61,6 +65,73 @@ func New(source io.Reader) (*Reader, error) {
 		return nil, ErrInvalidFormat
 	}
 	return r, nil
+}
+
+// DetectInfo reads the exchange header and account sections without parsing or
+// materializing payment documents. A top-level РасчСчет is authoritative; when
+// it is absent all account sections must identify the same account.
+func DetectInfo(source io.Reader) (Info, error) {
+	r, err := New(source)
+	if err != nil {
+		return Info{}, err
+	}
+	accounts := make(map[string]struct{})
+	inAccount := false
+	for {
+		line, readErr := r.readLine()
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return Info{}, readErr
+		}
+		atEOF := errors.Is(readErr, io.EOF)
+		switch {
+		case line == "СекцияРасчСчет":
+			inAccount = true
+		case line == "КонецРасчСчет":
+			inAccount = false
+		case strings.HasPrefix(line, "СекцияДокумент=") || line == "КонецФайла":
+			return detectedInfo(r.info, accounts)
+		default:
+			key, value, ok := strings.Cut(line, "=")
+			if ok {
+				key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+				if inAccount && key == "РасчСчет" && value != "" {
+					accounts[value] = struct{}{}
+				} else if !inAccount {
+					switch key {
+					case "ВерсияФормата":
+						r.info.Version = value
+					case "Отправитель":
+						r.info.Sender = value
+					case "РасчСчет":
+						r.info.Account = value
+					case "ДатаНачала":
+						r.info.DateFrom, _ = parseDate(value)
+					case "ДатаКонца":
+						r.info.DateTo, _ = parseDate(value)
+					}
+				}
+			}
+		}
+		if atEOF {
+			return detectedInfo(r.info, accounts)
+		}
+	}
+}
+
+func detectedInfo(info Info, accounts map[string]struct{}) (Info, error) {
+	if info.Account != "" {
+		return info, nil
+	}
+	if len(accounts) == 0 {
+		return Info{}, ErrStatementInfoNotDetected
+	}
+	if len(accounts) > 1 {
+		return Info{}, ErrAmbiguousAccounts
+	}
+	for account := range accounts {
+		info.Account = account
+	}
+	return info, nil
 }
 
 // Info returns metadata parsed so far. It is complete after WalkDocuments.
