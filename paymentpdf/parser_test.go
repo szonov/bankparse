@@ -106,6 +106,7 @@ func TestParseBankOrder(t *testing.T) {
 		block(60, 820, "02.03.2026"), block(30, 806, "БАНКОВСКИЙ ОРДЕР № 460857"),
 		block(277, 806, "01.10.2015"), block(290, 790, "Дата"),
 		block(451, 698, "Сумма"), block(430, 680, "3000="), block(407, 750, "Вид оп."), block(491, 750, "17"),
+		block(407, 716, "Очер. плат."), block(491, 716, "5"),
 		block(111, 698, "Плательщик"), block(32, 680, "ООО Тестовый клиент"), block(247, 680, "40000000000000000001"),
 		block(112, 640, "Получатель"), block(32, 622, "АО ТЕСТОВЫЙ ПОЛУЧАТЕЛЬ"), block(247, 622, "40000000000000000004"),
 		block(154, 598, "Назначение платежа"), block(32, 582, "Комиссия за обслуживание"), block(32, 570, "НДС не взимается"),
@@ -164,6 +165,19 @@ func TestPurposeRegionTextSkipsBudgetDetailsRow(t *testing.T) {
 	}
 	got := purposeRegionText(blocks, 370, 410, func(pdf.TextBlock) bool { return true })
 	if got != "НДС не облагается" {
+		t.Fatalf("unexpected purpose: %q", got)
+	}
+}
+
+func TestPurposeRegionTextSkipsUINBeforeBudgetDetailsRow(t *testing.T) {
+	blocks := []pdf.TextBlock{
+		block(450, 410, "1234567890"),
+		block(54, 400, "10000000000000000001"), block(200, 400, "50000001"),
+		block(280, 400, "0"), block(320, 400, "0"), block(410, 400, "0"), block(450, 400, "0"),
+		block(54, 385, "Тестовое назначение платежа"),
+	}
+	got := purposeRegionText(blocks, 370, 420, func(pdf.TextBlock) bool { return true })
+	if got != "Тестовое назначение платежа" {
 		t.Fatalf("unexpected purpose: %q", got)
 	}
 }

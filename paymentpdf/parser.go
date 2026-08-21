@@ -336,7 +336,10 @@ func findAmount(blocks []pdf.TextBlock) (int64, error) {
 			continue
 		}
 		candidate := nearestBlock(blocks, label, func(block pdf.TextBlock) bool {
-			return block != label && moneyRE.MatchString(clean(block.Text))
+			// The payment priority is printed just above the amount column on
+			// bank orders. Its value (usually "5") can be geometrically closer
+			// to the amount label than the actual amount below the label.
+			return block != label && block.Y <= label.Y+2 && moneyRE.MatchString(clean(block.Text))
 		})
 		if candidate.Text != "" {
 			return parseMoney(candidate.Text)
@@ -466,16 +469,22 @@ func purposeRegionText(blocks []pdf.TextBlock, bottom, top float64, accept func(
 		return ""
 	}
 
-	firstLineY := filtered[0].Y
-	firstLineEnd := 0
-	firstLineValues := make([]string, 0, 8)
-	for firstLineEnd < len(filtered) && math.Abs(filtered[firstLineEnd].Y-firstLineY) <= 2 {
-		firstLineValues = append(firstLineValues, clean(filtered[firstLineEnd].Text))
-		firstLineEnd++
-	}
-	firstLineValues = splitMergedBudgetValues(firstLineValues)
-	if budgetRowStart(firstLineValues) >= 0 {
-		filtered = filtered[firstLineEnd:]
+	// A UIN can be rendered on a separate line immediately before the other
+	// budget fields. Find the budget row and remove the whole service prefix,
+	// not just the first visual line in the purpose region.
+	for start := 0; start < len(filtered); {
+		lineY := filtered[start].Y
+		end := start
+		values := make([]string, 0, 8)
+		for end < len(filtered) && math.Abs(filtered[end].Y-lineY) <= 2 {
+			values = append(values, clean(filtered[end].Text))
+			end++
+		}
+		if budgetRowStart(splitMergedBudgetValues(values)) >= 0 {
+			filtered = filtered[end:]
+			break
+		}
+		start = end
 	}
 
 	values := make([]string, 0, len(filtered))
