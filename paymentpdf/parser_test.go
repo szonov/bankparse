@@ -191,7 +191,7 @@ func TestParseMergedOKTMOAndBasis(t *testing.T) {
 		block(320, 400, "МС.01.2026"), block(410, 400, "0"), block(450, 400, "0"),
 	}
 	got := parseBudgetDetails(blocks, 390, 410, func(pdf.TextBlock) bool { return true })
-	if got == nil || got.OKTMO != "50000001" || got.Basis != "0" || got.TaxPeriod != "МС.01.2026" {
+	if got == nil || got.OKTMO != "50000000" || got.Basis != "0" || got.TaxPeriod != "МС.01.2026" {
 		t.Fatalf("unexpected budget details: %+v", got)
 	}
 }

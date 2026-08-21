@@ -54,7 +54,7 @@ func TestParseDocumentToBankDocument(t *testing.T) {
 ПолучательКорсчет=30100000000000000002
 ВидОплаты=01
 СтатусСоставителя=01
-ПоказательКБК=10000000000000000002
+ПоказательКБК=10000000000000000001
 ОКАТО=50000001
 ПоказательОснования=0
 ПоказательПериода=МС.01.2026
@@ -85,7 +85,7 @@ func TestParseDocumentToBankDocument(t *testing.T) {
 	if document.Recipient.Account != "40000000000000000002" || document.Recipient.Bank.Account != "30100000000000000002" {
 		t.Fatalf("unexpected recipient: %+v", document.Recipient)
 	}
-	if document.Budget == nil || document.Budget.KBK != "10000000000000000002" || document.Budget.Basis != "0" {
+	if document.Budget == nil || document.Budget.KBK != "10000000000000000001" || document.Budget.Basis != "0" {
 		t.Fatalf("unexpected budget details: %+v", document.Budget)
 	}
 }

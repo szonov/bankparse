@@ -30,7 +30,7 @@ func TestDetectFormat(t *testing.T) {
 }
 
 func TestDetectStatementInfoClientBankExchange(t *testing.T) {
-	data := []byte("1CClientBankExchange\nОтправитель=  АО   Универсальный Банк  \nРасчСчет=40000000000000000002\nКонецФайла\n")
+	data := []byte("1CClientBankExchange\nОтправитель=  АО   Тестовый Банк  \nРасчСчет=40000000000000000001\nКонецФайла\n")
 	reader := bytes.NewReader(data)
 	if _, err := reader.Seek(7, io.SeekStart); err != nil {
 		t.Fatal(err)
@@ -39,7 +39,7 @@ func TestDetectStatementInfoClientBankExchange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := StatementInfo{AccountNumber: "40000000000000000002", BankName: "АО Универсальный Банк"}
+	want := StatementInfo{AccountNumber: "40000000000000000001", BankName: "АО Тестовый Банк"}
 	if got != want {
 		t.Fatalf("DetectStatementInfo() = %#v; want %#v", got, want)
 	}
@@ -58,13 +58,13 @@ func TestDetectStatementInfoClientBankExchange(t *testing.T) {
 
 func TestDetectStatementInfoClientBankExchangeSections(t *testing.T) {
 	for name, body := range map[string]string{
-		"one":  "СекцияРасчСчет\nРасчСчет=40000000000000000002\nКонецРасчСчет\n",
-		"same": "СекцияРасчСчет\nРасчСчет=40000000000000000002\nКонецРасчСчет\nСекцияРасчСчет\nРасчСчет=40000000000000000002\nКонецРасчСчет\n",
+		"one":  "СекцияРасчСчет\nРасчСчет=40000000000000000001\nКонецРасчСчет\n",
+		"same": "СекцияРасчСчет\nРасчСчет=40000000000000000001\nКонецРасчСчет\nСекцияРасчСчет\nРасчСчет=40000000000000000001\nКонецРасчСчет\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			data := []byte("1CClientBankExchange\n" + body + "КонецФайла\n")
 			got, err := DetectStatementInfo(bytes.NewReader(data), int64(len(data)))
-			if err != nil || got.AccountNumber != "40000000000000000002" || got.BankName != "" {
+			if err != nil || got.AccountNumber != "40000000000000000001" || got.BankName != "" {
 				t.Fatalf("DetectStatementInfo() = %#v, %v", got, err)
 			}
 		})
@@ -82,7 +82,7 @@ func TestDetectStatementInfoErrors(t *testing.T) {
 	if _, err := DetectStatementInfo(bytes.NewReader(unknown), int64(len(unknown))); !errors.Is(err, ErrUnknownFormat) {
 		t.Fatalf("unknown format error = %v", err)
 	}
-	ambiguous := []byte("1CClientBankExchange\nСекцияРасчСчет\nРасчСчет=40000000000000000002\nКонецРасчСчет\nСекцияРасчСчет\nРасчСчет=40000000000000000001\nКонецРасчСчет\nКонецФайла\n")
+	ambiguous := []byte("1CClientBankExchange\nСекцияРасчСчет\nРасчСчет=40000000000000000001\nКонецРасчСчет\nСекцияРасчСчет\nРасчСчет=40000000000000000002\nКонецРасчСчет\nКонецФайла\n")
 	if _, err := DetectStatementInfo(bytes.NewReader(ambiguous), int64(len(ambiguous))); !errors.Is(err, ErrStatementInfoAmbiguous) {
 		t.Fatalf("ambiguous error = %v", err)
 	}

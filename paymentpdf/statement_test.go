@@ -17,12 +17,28 @@ func TestDetectStatementInfoBlocks(t *testing.T) {
 			want:   StatementInfo{AccountNumber: "40000000000000000001"},
 		},
 		"bilingual labels": {
-			blocks: []pdf.TextBlock{{X: 100, Y: 700, Text: "Account statement"}, {X: 50, Y: 670, Text: "Номер счета / Account number:"}, {X: 260, Y: 670, Text: "40000000000000000002"}, {X: 50, Y: 650, Text: "Банк / Bank:"}, {X: 170, Y: 650, Text: "АО \"Северный Банк\""}},
-			want:   StatementInfo{AccountNumber: "40000000000000000002", BankName: "АО \"Северный Банк\""},
+			blocks: []pdf.TextBlock{{X: 100, Y: 700, Text: "Account statement"}, {X: 50, Y: 670, Text: "Номер счета / Account number:"}, {X: 260, Y: 670, Text: "40000000000000000002"}, {X: 50, Y: 650, Text: "Банк / Bank:"}, {X: 170, Y: 650, Text: "АО \"Тестовый банк\""}},
+			want:   StatementInfo{AccountNumber: "40000000000000000002", BankName: "АО \"Тестовый банк\""},
 		},
 		"organization above title": {
-			blocks: []pdf.TextBlock{{X: 50, Y: 740, Text: "  Сибирский   филиал АО \"Третий банк\" "}, {X: 100, Y: 700, Text: "Выписка по счету клиента"}, {X: 50, Y: 670, Text: "Номер счета: 40000000000000000002"}},
-			want:   StatementInfo{AccountNumber: "40000000000000000002", BankName: "Сибирский филиал АО \"Третий банк\""},
+			blocks: []pdf.TextBlock{{X: 50, Y: 740, Text: "  Региональный   филиал АО \"Тестовый банк\" "}, {X: 100, Y: 700, Text: "Выписка по счету клиента"}, {X: 50, Y: 670, Text: "Номер счета: 40000000000000000002"}},
+			want:   StatementInfo{AccountNumber: "40000000000000000002", BankName: "Региональный филиал АО \"Тестовый банк\""},
+		},
+		"split title account": {
+			blocks: []pdf.TextBlock{{Text: "АО ТЕСТОВЫЙ БАНК"}, {Text: "ВЫПИСКА ОПЕРАЦИЙ ПО ЛИЦЕВОМУ СЧЕТУ"}, {Text: "40000000000000000001"}, {Text: "ООО ТЕСТОВЫЙ КЛИЕНТ"}},
+			want:   StatementInfo{AccountNumber: "40000000000000000001", BankName: "АО ТЕСТОВЫЙ БАНК"},
+		},
+		"split bilingual fields": {
+			blocks: []pdf.TextBlock{{Text: "Выписка по счету клиента / Account statement"}, {Text: "Банк / Bank:"}, {Text: "Региональный филиал АО \"Тестовый банк\""}, {Text: "Номер счета / Account number:"}, {Text: "40000000000000000002"}},
+			want:   StatementInfo{AccountNumber: "40000000000000000002", BankName: "Региональный филиал АО \"Тестовый банк\""},
+		},
+		"value emitted before label": {
+			blocks: []pdf.TextBlock{{Text: "АО Тестовый банк"}, {Text: "Выписка по счету клиента / Account statement"}, {Text: "40000000000000000002"}, {Text: "Номер счета / Account number:"}},
+			want:   StatementInfo{AccountNumber: "40000000000000000002", BankName: "АО Тестовый банк"},
+		},
+		"joined bank heading": {
+			blocks: []pdf.TextBlock{{Text: "Дополнительный офис № 1АО \"Тестовый банк\"РЕГИОНАЛЬНЫЙ БАНК"}, {Text: "ВЫПИСКА ОПЕРАЦИЙ ПО ЛИЦЕВОМУ СЧЕТУ"}, {Text: "40000000000000000001"}},
+			want:   StatementInfo{AccountNumber: "40000000000000000001", BankName: "АО \"Тестовый банк\""},
 		},
 		"ignores operation rows": {
 			blocks: []pdf.TextBlock{{X: 100, Y: 700, Text: "Выписка по счету клиента"}, {X: 50, Y: 670, Text: "Номер счета: 40000000000000000002"}, {X: 30, Y: 300, Text: "40000000000000000003 Банк контрагента"}, {X: 30, Y: 280, Text: "Банк получателя: Иной банк"}},
