@@ -1,0 +1,4 @@
+github.com/szonov/pdf v1.0.0 h1:m5GzMBkOO2IYNq3E1I24nSVE4dfVHPzai0QzeMalZCA=
+github.com/szonov/pdf v1.0.0/go.mod h1:ILzLRVs85RVtZwY4YgJDdJ1/aw21obwI3jeIgvYVGPc=
+golang.org/x/text v0.41.0 h1:vz/seA0lnX87Othu2f/0L24RcgrXD9/YFTSuGjj3rH8=
+golang.org/x/text v0.41.0/go.mod h1:jvf1O8ajNzZqhSrQBPbutR/EB83Cc0CFrezNQIwbb5M=
