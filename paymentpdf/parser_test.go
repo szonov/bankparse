@@ -141,6 +141,23 @@ func TestStatementMarkers(t *testing.T) {
 	}
 }
 
+func TestDocumentFormMarkersBeforeDelayedTitle(t *testing.T) {
+	for _, text := range []string{
+		"Плательщик",
+		"Банк плательщика",
+		"Банк получателя",
+		"Получатель",
+		"Назначение платежа",
+	} {
+		if !isDocumentFormBlock(text) {
+			t.Errorf("document form marker was not recognized: %q", text)
+		}
+	}
+	if isDocumentFormBlock("Сумма по дебету") {
+		t.Fatal("statement marker recognized as a document form")
+	}
+}
+
 func TestDocumentTitleWithLatinN(t *testing.T) {
 	match := documentTitleRE.FindStringSubmatch("ПЛАТЕЖНОЕ ПОРУЧЕНИЕ N 21")
 	if len(match) != 3 || match[2] != "21" {

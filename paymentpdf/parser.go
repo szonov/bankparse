@@ -100,7 +100,7 @@ func readDocumentPage(page pdf.Page) (payment.Document, bool, error) {
 			found = true
 			return nil
 		}
-		if text == "0401060" || text == "0401061" || text == "0401067" || strings.Contains(text, "Поступ. в банк плат.") {
+		if isDocumentFormBlock(text) {
 			candidate = true
 		}
 		if !found && (isStatementBlock(text) || (!candidate && len(blocks) >= classificationBlockLimit)) {
@@ -119,6 +119,18 @@ func readDocumentPage(page pdf.Page) (payment.Document, bool, error) {
 	}
 	document, err := parseDocument(blocks)
 	return document, true, err
+}
+
+func isDocumentFormBlock(text string) bool {
+	text = clean(text)
+	if text == "0401060" || text == "0401061" || text == "0401067" || strings.Contains(text, "Поступ. в банк плат.") {
+		return true
+	}
+	return equalFold(text, "Плательщик") ||
+		equalFold(text, "Банк плательщика") ||
+		equalFold(text, "Банк получателя") ||
+		equalFold(text, "Получатель") ||
+		equalFold(text, "Назначение платежа")
 }
 
 func isStatementBlock(text string) bool {
