@@ -620,6 +620,15 @@ func purposeRegionText(blocks []pdf.TextBlock, bottom, top float64, accept func(
 			filtered = filtered[end:]
 			break
 		}
+		// Some non-budget SberBusiness payment orders render only a zero in
+		// the tax-period column. With the other budget cells empty there is no
+		// complete row for budgetRowStart to recognize. It is still a service
+		// field when it occupies a separate line to the right of the purpose.
+		if len(values) == 1 && values[0] == "0" && end < len(filtered) &&
+			filtered[start].X-filtered[end].X >= 80 {
+			filtered = filtered[end:]
+			break
+		}
 		start = end
 	}
 

@@ -296,6 +296,28 @@ func TestPurposeRegionTextSkipsUINBeforeBudgetDetailsRow(t *testing.T) {
 	}
 }
 
+func TestPurposeRegionTextSkipsIsolatedBudgetZero(t *testing.T) {
+	blocks := []pdf.TextBlock{
+		block(320, 400, "0"),
+		block(54, 385, "Возврат синтетического депозита, без НДС"),
+	}
+	got := purposeRegionText(blocks, 370, 410, func(pdf.TextBlock) bool { return true })
+	if got != "Возврат синтетического депозита, без НДС" {
+		t.Fatalf("unexpected purpose: %q", got)
+	}
+}
+
+func TestPurposeRegionTextPreservesLeadingPurposeZero(t *testing.T) {
+	blocks := []pdf.TextBlock{
+		block(54, 400, "0"),
+		block(54, 385, "процентов по синтетическому договору"),
+	}
+	got := purposeRegionText(blocks, 370, 410, func(pdf.TextBlock) bool { return true })
+	if got != "0 процентов по синтетическому договору" {
+		t.Fatalf("unexpected purpose: %q", got)
+	}
+}
+
 func TestParseBudgetDetails(t *testing.T) {
 	blocks := []pdf.TextBlock{
 		block(30, 400, "01"), block(54, 400, "10000000000000000001"), block(200, 400, "50000001"),
