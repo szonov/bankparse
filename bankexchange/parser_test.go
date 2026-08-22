@@ -156,7 +156,7 @@ func TestParseDocumentDatePriority(t *testing.T) {
 	}
 }
 
-func TestParseNonBankOrderUsesDocumentDate(t *testing.T) {
+func TestParseNonBankOrderUsesDebitedDate(t *testing.T) {
 	fields := map[string]string{
 		"СекцияДокумент": "Платежное поручение",
 		"Номер":          "8",
@@ -169,8 +169,8 @@ func TestParseNonBankOrderUsesDocumentDate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := document.Date.Format("02.01.2006"); got != "01.02.2026" {
-		t.Fatalf("date=%s, want 01.02.2026", got)
+	if got := document.Date.Format("02.01.2006"); got != "03.02.2026" {
+		t.Fatalf("date=%s, want 03.02.2026", got)
 	}
 }
 

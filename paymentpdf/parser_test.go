@@ -53,6 +53,35 @@ func TestParsePaymentForm(t *testing.T) {
 	}
 }
 
+func TestParseDocumentPrefersExecutedDate(t *testing.T) {
+	blocks := []pdf.TextBlock{
+		block(60, 730, "ПЛАТЕЖНОЕ ПОРУЧЕНИЕ № 22"),
+		block(320, 730, "29.01.2026"), block(330, 710, "Дата"),
+		block(430, 180, "ИСПОЛНЕНО"), block(435, 160, "02.02.2026"),
+		block(281, 645, "Сумма"), block(332, 644, "100="),
+		block(60, 643, "ИНН5000000001"), block(332, 605, "40000000000000000002"), block(60, 584, "Плательщик"),
+		block(61, 569, "АО БАНК ПЛАТЕЛЬЩИКА"), block(332, 569, "040000002"), block(332, 555, "30100000000000000002"), block(60, 539, "Банк Плательщика"),
+		block(61, 524, "АО ТЕСТОВЫЙ БАНК"), block(332, 524, "040000001"), block(332, 510, "30100000000000000001"), block(60, 494, "Банк Получателя"),
+		block(60, 479, "ИНН5000000000"), block(332, 480, "40000000000000000001"), block(61, 464, "ООО ТЕСТОВЫЙ ПОЛУЧАТЕЛЬ"),
+		block(281, 444, "Вид оп."), block(332, 444, "01"), block(60, 414, "Получатель"),
+		block(61, 384, "Оплата по синтетическому договору"), block(60, 344, "Назначение платежа"),
+	}
+
+	document, err := parseDocument(blocks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := document.Date.Format("02.01.2006"); got != "02.02.2026" {
+		t.Fatalf("date=%s, want 02.02.2026", got)
+	}
+}
+
+func TestExecutedDateInStampBlock(t *testing.T) {
+	if got := executedDateText([]pdf.TextBlock{block(430, 180, "ИСПОЛНЕНО 03.02.2026")}); got != "03.02.2026" {
+		t.Fatalf("date=%q", got)
+	}
+}
+
 func TestParsePaymentRequestPurposeBelowLabel(t *testing.T) {
 	blocks := []pdf.TextBlock{
 		block(54, 700, "ПЛАТЕЖНОЕ ТРЕБОВАНИЕ № 972"), block(320, 700, "31.12.2014"),

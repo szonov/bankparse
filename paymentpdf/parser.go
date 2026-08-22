@@ -200,11 +200,14 @@ func parseDocument(blocks []pdf.TextBlock) (payment.Document, error) {
 		Amount: payment.Amount{Currency: "RUB"},
 	}
 
-	dateOrigin := title
-	if label, found := findBlock(blocks, func(text string) bool { return equalFold(text, "Дата") }); found {
-		dateOrigin = label
+	dateText := executedDateText(blocks)
+	if dateText == "" {
+		dateOrigin := title
+		if label, found := findBlock(blocks, func(text string) bool { return equalFold(text, "Дата") }); found {
+			dateOrigin = label
+		}
+		dateText = nearestText(blocks, dateOrigin, func(text string) bool { return dateRE.MatchString(text) })
 	}
-	dateText := nearestText(blocks, dateOrigin, func(text string) bool { return dateRE.MatchString(text) })
 	if dateText == "" {
 		return payment.Document{}, errors.New("document date is missing")
 	}
@@ -223,6 +226,23 @@ func parseDocument(blocks []pdf.TextBlock) (payment.Document, error) {
 		return payment.Document{}, err
 	}
 	return document, nil
+}
+
+func executedDateText(blocks []pdf.TextBlock) string {
+	stamp, found := findBlock(blocks, func(text string) bool {
+		return strings.Contains(strings.ToUpper(text), "ИСПОЛНЕНО")
+	})
+	if !found {
+		return ""
+	}
+	if date := dateRE.FindString(clean(stamp.Text)); date != "" {
+		return date
+	}
+	date := nearestBlock(blocks, stamp, func(block pdf.TextBlock) bool {
+		return block.Y < stamp.Y && stamp.Y-block.Y <= 80 &&
+			math.Abs(block.X-stamp.X) <= 120 && dateRE.MatchString(clean(block.Text))
+	})
+	return dateRE.FindString(clean(date.Text))
 }
 
 func parsePaymentForm(blocks []pdf.TextBlock, document *payment.Document) error {

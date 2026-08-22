@@ -351,10 +351,7 @@ func parseDocument(fields map[string]string) (payment.Document, error) {
 		return payment.Document{}, fmt.Errorf("%w: %s number is missing", ErrInvalidFormat, typeName)
 	}
 
-	dateValue := value(fields, "Дата")
-	if documentType == payment.BankOrder {
-		dateValue = firstValue(fields, "ДатаСписано", "ДатаПоступило", "Дата")
-	}
+	dateValue := firstValue(fields, "ДатаСписано", "ДатаПоступило", "Дата")
 	date, err := parseDate(dateValue)
 	if err != nil {
 		return payment.Document{}, fmt.Errorf("%w: document %q date: %v", ErrInvalidFormat, number, err)
