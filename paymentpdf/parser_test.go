@@ -77,6 +77,26 @@ func TestParsePaymentRequestPurposeBelowLabel(t *testing.T) {
 	}
 }
 
+func TestParseCollectionOrder(t *testing.T) {
+	blocks := []pdf.TextBlock{
+		block(54, 700, "ИНКАССОВОЕ ПОРУЧЕНИЕ № 731"), block(320, 700, "31.01.2026"),
+		block(302, 625, "Сумма"), block(350, 625, "987-65"),
+		block(54, 624, "ИНН 5000000000"), block(350, 588, "40000000000000000001"), block(54, 566, "Плательщик"),
+		block(54, 550, "АО Банк плательщика"), block(350, 550, "040000001"), block(350, 538, "30100000000000000001"), block(54, 526, "Банк Плательщика"),
+		block(54, 514, "АО Банк получателя"), block(350, 514, "040000002"), block(350, 502, "30100000000000000002"), block(54, 489, "Банк Получателя"),
+		block(54, 477, "ИНН 5000000001"), block(350, 477, "40000000000000000002"), block(54, 460, "ООО Тестовый получатель"),
+		block(302, 440, "Вид оп."), block(350, 440, "06"), block(54, 416, "Получатель"),
+		block(54, 391, "Взыскание по синтетическому решению"), block(54, 380, "НДС не облагается"), block(54, 350, "Назначение платежа"),
+	}
+	document, err := parseDocument(blocks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.Type != payment.CollectionOrder || document.Number != "731" || document.Amount.Kopecks != 98_765 {
+		t.Fatalf("unexpected collection order: %+v", document)
+	}
+}
+
 func TestParsePartyWithSeparateTaxIDBlocks(t *testing.T) {
 	blocks := []pdf.TextBlock{
 		block(54, 624, "ИНН"), block(82, 624, "5000000000"),
@@ -143,6 +163,7 @@ func TestStatementMarkers(t *testing.T) {
 
 func TestDocumentFormMarkersBeforeDelayedTitle(t *testing.T) {
 	for _, text := range []string{
+		"0401071",
 		"Плательщик",
 		"Банк плательщика",
 		"Банк получателя",

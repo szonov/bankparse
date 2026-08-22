@@ -25,9 +25,10 @@ type Walker interface {
 type Type string
 
 const (
-	PaymentOrder   Type = "payment_order"
-	PaymentRequest Type = "payment_request"
-	BankOrder      Type = "bank_order"
+	PaymentOrder    Type = "payment_order"
+	PaymentRequest  Type = "payment_request"
+	CollectionOrder Type = "collection_order"
+	BankOrder       Type = "bank_order"
 )
 
 // Amount is a non-negative monetary amount. Kopecks keeps the DTO independent

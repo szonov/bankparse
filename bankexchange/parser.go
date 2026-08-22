@@ -302,6 +302,8 @@ func parseDocumentType(value string) (payment.Type, error) {
 		return payment.PaymentOrder, nil
 	case "платежное требование":
 		return payment.PaymentRequest, nil
+	case "инкассовое поручение":
+		return payment.CollectionOrder, nil
 	case "банковский ордер":
 		return payment.BankOrder, nil
 	default:

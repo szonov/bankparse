@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	documentTitleRE = regexp.MustCompile(`(?i)(ПЛАТЕЖНОЕ\s+ПОРУЧЕНИЕ|ПЛАТЕЖНОЕ\s+ТРЕБОВАНИЕ|БАНКОВСКИЙ\s+ОРДЕР)\s*(?:№|N)\s*([^\s]+)`)
+	documentTitleRE = regexp.MustCompile(`(?i)(ПЛАТЕЖНОЕ\s+ПОРУЧЕНИЕ|ПЛАТЕЖНОЕ\s+ТРЕБОВАНИЕ|ИНКАССОВОЕ\s+ПОРУЧЕНИЕ|БАНКОВСКИЙ\s+ОРДЕР)\s*(?:№|N)\s*([^\s]+)`)
 	dateRE          = regexp.MustCompile(`\b(\d{2}\.\d{2}\.\d{4})\b`)
 	accountRE       = regexp.MustCompile(`\b\d{20}\b`)
 	bikRE           = regexp.MustCompile(`\b\d{9}\b`)
@@ -123,7 +123,7 @@ func readDocumentPage(page pdf.Page) (payment.Document, bool, error) {
 
 func isDocumentFormBlock(text string) bool {
 	text = clean(text)
-	if text == "0401060" || text == "0401061" || text == "0401067" || strings.Contains(text, "Поступ. в банк плат.") {
+	if text == "0401060" || text == "0401061" || text == "0401067" || text == "0401071" || strings.Contains(text, "Поступ. в банк плат.") {
 		return true
 	}
 	return equalFold(text, "Плательщик") ||
@@ -382,6 +382,8 @@ func parseMoney(text string) (int64, error) {
 func documentType(title string) payment.Type {
 	title = strings.ToUpper(title)
 	switch {
+	case strings.Contains(title, "ИНКАССОВОЕ"):
+		return payment.CollectionOrder
 	case strings.Contains(title, "ПОРУЧЕНИЕ"):
 		return payment.PaymentOrder
 	case strings.Contains(title, "ТРЕБОВАНИЕ"):
