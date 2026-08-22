@@ -107,6 +107,73 @@ func TestParseDocumentWithoutBudget(t *testing.T) {
 	}
 }
 
+func TestParseDocumentDatePriority(t *testing.T) {
+	tests := []struct {
+		name   string
+		fields map[string]string
+		want   string
+	}{
+		{
+			name: "debited date",
+			fields: map[string]string{
+				"Дата": "01.02.2026", "ДатаПоступило": "02.02.2026", "ДатаСписано": "03.02.2026",
+			},
+			want: "03.02.2026",
+		},
+		{
+			name: "received date",
+			fields: map[string]string{
+				"Дата": "01.02.2026", "ДатаПоступило": "02.02.2026", "ДатаСписано": " ",
+			},
+			want: "02.02.2026",
+		},
+		{
+			name: "document date",
+			fields: map[string]string{
+				"Дата": "01.02.2026",
+			},
+			want: "01.02.2026",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fields := map[string]string{
+				"СекцияДокумент": "Банковский ордер",
+				"Номер":          "7",
+				"Сумма":          "10.50",
+			}
+			for name, value := range test.fields {
+				fields[name] = value
+			}
+			document, err := parseDocument(fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := document.Date.Format("02.01.2006"); got != test.want {
+				t.Fatalf("date=%s, want %s", got, test.want)
+			}
+		})
+	}
+}
+
+func TestParseNonBankOrderUsesDocumentDate(t *testing.T) {
+	fields := map[string]string{
+		"СекцияДокумент": "Платежное поручение",
+		"Номер":          "8",
+		"Дата":           "01.02.2026",
+		"ДатаПоступило":  "02.02.2026",
+		"ДатаСписано":    "03.02.2026",
+		"Сумма":          "10.50",
+	}
+	document, err := parseDocument(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := document.Date.Format("02.01.2006"); got != "01.02.2026" {
+		t.Fatalf("date=%s, want 01.02.2026", got)
+	}
+}
+
 func TestParseAmount(t *testing.T) {
 	for input, want := range map[string]int64{
 		"27957": 2_795_700, "1674.45": 167_445, "1674,4": 167_440, "0.01": 1,

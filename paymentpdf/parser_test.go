@@ -284,6 +284,26 @@ func TestParseBudgetDetails(t *testing.T) {
 	}
 }
 
+func TestZeroKBKBudgetRowIsParsedAndExcludedFromPurpose(t *testing.T) {
+	blocks := []pdf.TextBlock{
+		block(54, 400, "0"), block(200, 400, "50000001"), block(280, 400, "0"),
+		block(320, 400, "0"), block(410, 400, "0"), block(450, 400, "15.02.2026"),
+		block(54, 385, "Тестовое назначение платежа"),
+	}
+	accept := func(pdf.TextBlock) bool { return true }
+	details := parseBudgetDetails(blocks, 370, 410, accept)
+	if details == nil {
+		t.Fatal("budget details were not parsed")
+	}
+	if details.KBK != "0" || details.OKTMO != "50000001" || details.Basis != "0" ||
+		details.TaxPeriod != "0" || details.DocumentNumber != "0" || details.DocumentDate != "15.02.2026" {
+		t.Fatalf("unexpected budget details: %+v", details)
+	}
+	if got := purposeRegionText(blocks, 370, 410, accept); got != "Тестовое назначение платежа" {
+		t.Fatalf("unexpected purpose: %q", got)
+	}
+}
+
 func TestParseMergedOKTMOAndBasis(t *testing.T) {
 	blocks := []pdf.TextBlock{
 		block(54, 400, "10000000000000000002"), block(200, 400, "500000000"),

@@ -651,8 +651,22 @@ func budgetRowStart(values []string) int {
 		if budgetCodeRE.MatchString(value) && i+1 < len(values) && (oktmoRE.MatchString(values[i+1]) || values[i+1] == "0") {
 			return i
 		}
+		if isZeroKBKBudgetRow(values, i) {
+			return i
+		}
 	}
 	return -1
+}
+
+func isZeroKBKBudgetRow(values []string, index int) bool {
+	if index+5 >= len(values) || values[index] != "0" {
+		return false
+	}
+	if !oktmoRE.MatchString(values[index+1]) && values[index+1] != "0" {
+		return false
+	}
+	documentDate := values[index+5]
+	return documentDate == "0" || dateRE.MatchString(documentDate)
 }
 
 func splitMergedBudgetValues(values []string) []string {
