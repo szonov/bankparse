@@ -271,22 +271,38 @@ func (r *Reader) validateTurnovers(actual *turnovers) error {
 	if actual == nil {
 		actual = &turnovers{}
 	}
+	var expectedDebit, expectedCredit int64
+	var hasDebit, hasCredit bool
 	for _, account := range r.info.Accounts {
 		if account.Fields["РасчСчет"] != r.info.Account {
 			continue
 		}
-		expectedDebit, hasDebit, err := statementTurnover(account.Fields, "ВсегоСписано")
+		debit, sectionHasDebit, err := statementTurnover(account.Fields, "ВсегоСписано")
 		if err != nil {
 			return err
 		}
-		expectedCredit, hasCredit, err := statementTurnover(account.Fields, "ВсегоПоступило")
+		credit, sectionHasCredit, err := statementTurnover(account.Fields, "ВсегоПоступило")
 		if err != nil {
 			return err
 		}
-		if (hasDebit && actual.debit != expectedDebit) || (hasCredit && actual.credit != expectedCredit) {
-			return fmt.Errorf("%w: debit summary=%d parsed=%d, credit summary=%d parsed=%d",
-				ErrDocumentTotalsMismatch, expectedDebit, actual.debit, expectedCredit, actual.credit)
+		if sectionHasDebit {
+			if debit > math.MaxInt64-expectedDebit {
+				return fmt.Errorf("%w: account ВсегоСписано overflows kopecks", ErrInvalidFormat)
+			}
+			expectedDebit += debit
+			hasDebit = true
 		}
+		if sectionHasCredit {
+			if credit > math.MaxInt64-expectedCredit {
+				return fmt.Errorf("%w: account ВсегоПоступило overflows kopecks", ErrInvalidFormat)
+			}
+			expectedCredit += credit
+			hasCredit = true
+		}
+	}
+	if (hasDebit && actual.debit != expectedDebit) || (hasCredit && actual.credit != expectedCredit) {
+		return fmt.Errorf("%w: debit summary=%d parsed=%d, credit summary=%d parsed=%d",
+			ErrDocumentTotalsMismatch, expectedDebit, actual.debit, expectedCredit, actual.credit)
 	}
 	return nil
 }

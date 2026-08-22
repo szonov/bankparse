@@ -109,6 +109,18 @@ func TestParsePartyWithSeparateTaxIDBlocks(t *testing.T) {
 	}
 }
 
+func TestParsePartyPrefersFormAccountColumn(t *testing.T) {
+	blocks := []pdf.TextBlock{
+		block(54, 624, "ИНН 5000000000"),
+		block(32, 610, "Дополнительные сведения 40000000000000000009"),
+		block(385, 590, "40000000000000000001"),
+	}
+	party := parseParty(blocks, 570, 640)
+	if party.Account != "40000000000000000001" {
+		t.Fatalf("account=%q", party.Account)
+	}
+}
+
 func TestParsePartyRemovesZeroKPPFromEntrepreneurName(t *testing.T) {
 	blocks := []pdf.TextBlock{
 		block(54, 624, "ИНН"), block(82, 624, "500000000001"),

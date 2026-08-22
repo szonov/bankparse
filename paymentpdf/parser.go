@@ -323,7 +323,7 @@ func parseBankOrder(blocks []pdf.TextBlock, document *payment.Document) error {
 
 func parseParty(blocks []pdf.TextBlock, bottom, top float64) payment.Party {
 	var party payment.Party
-	party.Account = firstPatternInRegion(blocks, bottom, top, accountRE)
+	party.Account = formAccountInRegion(blocks, bottom, top)
 	region := blocksInRegion(blocks, bottom, top)
 	for _, block := range region {
 		text := clean(block.Text)
@@ -368,7 +368,7 @@ func valueForLabel(blocks []pdf.TextBlock, label string, valuePattern *regexp.Re
 
 func parseBank(blocks []pdf.TextBlock, bottom, top float64) payment.Bank {
 	var bank payment.Bank
-	bank.Account = firstPatternInRegion(blocks, bottom, top, accountRE)
+	bank.Account = formAccountInRegion(blocks, bottom, top)
 	bank.BIK = firstPatternInRegion(blocks, bottom, top, bikRE)
 	bank.Name = regionText(blocks, bottom, top, func(block pdf.TextBlock) bool {
 		text := clean(block.Text)
@@ -537,6 +537,19 @@ func firstPatternInRegion(blocks []pdf.TextBlock, bottom, top float64, pattern *
 		}
 	}
 	return ""
+}
+
+func formAccountInRegion(blocks []pdf.TextBlock, bottom, top float64) string {
+	region := blocksInRegion(blocks, bottom, top)
+	for _, block := range region {
+		if block.X < 275 {
+			continue
+		}
+		if match := accountRE.FindString(clean(block.Text)); match != "" {
+			return match
+		}
+	}
+	return firstPatternInRegion(region, bottom, top, accountRE)
 }
 
 func leftRegionText(blocks []pdf.TextBlock, bottom, top float64) string {
