@@ -300,6 +300,8 @@ func parseDocumentType(value string) (payment.Type, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "платежное поручение":
 		return payment.PaymentOrder, nil
+	case "платежный ордер":
+		return payment.PaymentWarrant, nil
 	case "платежное требование":
 		return payment.PaymentRequest, nil
 	case "инкассовое поручение":

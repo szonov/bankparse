@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	documentTitleRE = regexp.MustCompile(`(?i)(ПЛАТЕЖНОЕ\s+ПОРУЧЕНИЕ|ПЛАТЕЖНОЕ\s+ТРЕБОВАНИЕ|ИНКАССОВОЕ\s+ПОРУЧЕНИЕ|БАНКОВСКИЙ\s+ОРДЕР)\s*(?:№|N)\s*([^\s]+)`)
+	documentTitleRE = regexp.MustCompile(`(?i)(ПЛАТЕЖНОЕ\s+ПОРУЧЕНИЕ|ПЛАТЕЖНЫЙ\s+ОРДЕР|ПЛАТЕЖНОЕ\s+ТРЕБОВАНИЕ|ИНКАССОВОЕ\s+ПОРУЧЕНИЕ|БАНКОВСКИЙ\s+ОРДЕР)\s*(?:№|N)\s*([^\s]+)`)
 	dateRE          = regexp.MustCompile(`\b(\d{2}\.\d{2}\.\d{4})\b`)
 	accountRE       = regexp.MustCompile(`\b\d{20}\b`)
 	bikRE           = regexp.MustCompile(`\b\d{9}\b`)
@@ -33,6 +33,20 @@ var (
 	nineDigitsRE    = regexp.MustCompile(`^\d{9}$`)
 	moneyRE         = regexp.MustCompile(`^\s*([0-9][0-9 ]*)(?:[,.\-]([0-9]{2})|=)?\s*$`)
 )
+
+// ErrDocumentCountMismatch reports that a statement summary and the following
+// complete sequence of document forms contain different operation counts.
+var ErrDocumentCountMismatch = errors.New("PDF document count does not match statement summary")
+
+// ErrDocumentTotalsMismatch reports that parsed document amounts do not add up
+// to the debit and credit turnovers printed in the statement summary.
+var ErrDocumentTotalsMismatch = errors.New("PDF document totals do not match statement summary")
+
+type statementSummary struct {
+	Count  int
+	Debit  int64
+	Credit int64
+}
 
 // DocumentFunc receives a document as soon as its page has been interpreted.
 // Returning an error stops both page interpretation and page-tree traversal.
@@ -57,19 +71,53 @@ func (r *Reader) WalkPageDocuments(executor PageDocumentFunc) error {
 	if executor == nil {
 		return errors.New("nil document executor")
 	}
-	return r.reader.WalkPages(func(pageNumber int, page pdf.Page) error {
-		document, found, err := readDocumentPage(page)
+	info, infoErr := DetectStatementInfo(r.reader)
+	if infoErr != nil && !errors.Is(infoErr, ErrStatementInfoNotDetected) && !errors.Is(infoErr, ErrAmbiguousStatementInfo) {
+		return infoErr
+	}
+	var summaryPage, documentCount int
+	var expected statementSummary
+	var debit, credit int64
+	err := r.reader.WalkPages(func(pageNumber int, page pdf.Page) error {
+		document, found, summary, err := readDocumentPage(page)
 		if err != nil {
 			return fmt.Errorf("parse bank document on page %d: %w", pageNumber, err)
 		}
+		if summary.Count > 0 {
+			summaryPage, expected = pageNumber, summary
+			return nil
+		}
 		if !found {
 			return nil
+		}
+		if documentCount == 0 && summaryPage != pageNumber-1 {
+			expected = statementSummary{}
+		}
+		documentCount++
+		if info.AccountNumber != "" {
+			switch {
+			case document.Payer.Account == info.AccountNumber:
+				debit += document.Amount.Kopecks
+			case document.Recipient.Account == info.AccountNumber:
+				credit += document.Amount.Kopecks
+			}
 		}
 		if err := executor(pageNumber, document); err != nil {
 			return err
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if expected.Count > 0 && documentCount != expected.Count {
+		return fmt.Errorf("%w: summary has %d, parsed %d", ErrDocumentCountMismatch, expected.Count, documentCount)
+	}
+	if expected.Count > 0 && info.AccountNumber != "" && (debit != expected.Debit || credit != expected.Credit) {
+		return fmt.Errorf("%w: debit summary=%d parsed=%d, credit summary=%d parsed=%d",
+			ErrDocumentTotalsMismatch, expected.Debit, debit, expected.Credit, credit)
+	}
+	return nil
 }
 
 // WalkDocuments implements payment.Walker. Returning payment.ErrStop from the
@@ -89,7 +137,7 @@ func (r *Reader) WalkDocuments(executor payment.DocumentFunc) error {
 
 const classificationBlockLimit = 32
 
-func readDocumentPage(page pdf.Page) (payment.Document, bool, error) {
+func readDocumentPage(page pdf.Page) (payment.Document, bool, statementSummary, error) {
 	blocks := make([]pdf.TextBlock, 0, 80)
 	found := false
 	candidate := false
@@ -109,21 +157,21 @@ func readDocumentPage(page pdf.Page) (payment.Document, bool, error) {
 		return nil
 	})
 	if errors.Is(err, pdf.ErrStopTextBlocks) {
-		return payment.Document{}, false, nil
+		return payment.Document{}, false, statementSummary{}, nil
 	}
 	if err != nil {
-		return payment.Document{}, false, err
+		return payment.Document{}, false, statementSummary{}, err
 	}
 	if !found {
-		return payment.Document{}, false, nil
+		return payment.Document{}, false, parseStatementSummary(blocks), nil
 	}
 	document, err := parseDocument(blocks)
-	return document, true, err
+	return document, true, statementSummary{}, err
 }
 
 func isDocumentFormBlock(text string) bool {
 	text = clean(text)
-	if text == "0401060" || text == "0401061" || text == "0401067" || text == "0401071" || strings.Contains(text, "Поступ. в банк плат.") {
+	if text == "0401060" || text == "0401061" || text == "0401066" || text == "0401067" || text == "0401071" || strings.Contains(text, "Поступ. в банк плат.") {
 		return true
 	}
 	return equalFold(text, "Плательщик") ||
@@ -214,12 +262,18 @@ func parsePaymentForm(blocks []pdf.TextBlock, document *payment.Document) error 
 	purposeFilter := func(block pdf.TextBlock) bool {
 		return block.X < 570 && !isFormLabel(block.Text)
 	}
-	// New forms put the purpose above its caption, while older payment
-	// requests put it below. Prefer the upper region and only fall back to the
-	// lower one when the upper region is empty.
-	document.Purpose = purposeRegionText(blocks, purposeY, recipientY, purposeFilter)
-	if document.Purpose == "" {
+	// Most forms put the purpose above its caption, while payment warrants and
+	// older payment requests put it below.
+	if document.Type == payment.PaymentWarrant {
 		document.Purpose = contiguousRegionText(blocks, purposeY-100, purposeY, purposeFilter)
+		if document.Purpose == "" {
+			document.Purpose = purposeRegionText(blocks, purposeY, recipientY, purposeFilter)
+		}
+	} else {
+		document.Purpose = purposeRegionText(blocks, purposeY, recipientY, purposeFilter)
+		if document.Purpose == "" {
+			document.Purpose = contiguousRegionText(blocks, purposeY-100, purposeY, purposeFilter)
+		}
 	}
 	document.Budget = parseBudgetDetails(blocks, purposeY, recipientY, purposeFilter)
 	if document.Budget != nil && document.Budget.PayerStatus == "" {
@@ -384,6 +438,8 @@ func documentType(title string) payment.Type {
 	switch {
 	case strings.Contains(title, "ИНКАССОВОЕ"):
 		return payment.CollectionOrder
+	case strings.Contains(title, "ПЛАТЕЖНЫЙ") && strings.Contains(title, "ОРДЕР"):
+		return payment.PaymentWarrant
 	case strings.Contains(title, "ПОРУЧЕНИЕ"):
 		return payment.PaymentOrder
 	case strings.Contains(title, "ТРЕБОВАНИЕ"):
@@ -391,6 +447,39 @@ func documentType(title string) payment.Type {
 	default:
 		return payment.BankOrder
 	}
+}
+
+func parseStatementSummary(blocks []pdf.TextBlock) statementSummary {
+	countText := summaryCell(blocks, "Количество операций", "Всего")
+	debitText := summaryCell(blocks, "Итого оборотов", "Дебет")
+	creditText := summaryCell(blocks, "Итого оборотов", "Кредит")
+	count, countErr := strconv.Atoi(countText)
+	debit, debitErr := parseMoney(debitText)
+	credit, creditErr := parseMoney(creditText)
+	if countErr != nil || debitErr != nil || creditErr != nil || count <= 0 {
+		return statementSummary{}
+	}
+	return statementSummary{Count: count, Debit: debit, Credit: credit}
+}
+
+func summaryCell(blocks []pdf.TextBlock, rowText, columnText string) string {
+	row, rowOK := findBlock(blocks, func(text string) bool { return equalFold(text, rowText) })
+	column, columnOK := findBlock(blocks, func(text string) bool { return equalFold(text, columnText) })
+	debit, debitOK := findBlock(blocks, func(text string) bool { return equalFold(text, "Дебет") })
+	credit, creditOK := findBlock(blocks, func(text string) bool { return equalFold(text, "Кредит") })
+	if !rowOK || !columnOK || !debitOK || !creditOK {
+		return ""
+	}
+	rotated := math.Abs(debit.X-credit.X) <= 2
+	for _, block := range blocks {
+		if rotated && math.Abs(block.X-row.X) <= 2 && math.Abs(block.Y-column.Y) <= 2 {
+			return clean(block.Text)
+		}
+		if !rotated && math.Abs(block.X-column.X) <= 2 && math.Abs(block.Y-row.Y) <= 2 {
+			return clean(block.Text)
+		}
+	}
+	return ""
 }
 
 func valueRightOfLabel(blocks []pdf.TextBlock, label, pattern string) string {

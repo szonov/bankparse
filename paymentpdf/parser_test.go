@@ -164,6 +164,7 @@ func TestStatementMarkers(t *testing.T) {
 func TestDocumentFormMarkersBeforeDelayedTitle(t *testing.T) {
 	for _, text := range []string{
 		"0401071",
+		"0401066",
 		"Плательщик",
 		"Банк плательщика",
 		"Банк получателя",
@@ -176,6 +177,40 @@ func TestDocumentFormMarkersBeforeDelayedTitle(t *testing.T) {
 	}
 	if isDocumentFormBlock("Сумма по дебету") {
 		t.Fatal("statement marker recognized as a document form")
+	}
+}
+
+func TestParsePaymentWarrant(t *testing.T) {
+	blocks := []pdf.TextBlock{
+		block(54, 700, "ПЛАТЕЖНЫЙ ОРДЕР № 107"), block(320, 700, "31.01.2026"),
+		block(302, 625, "Сумма"), block(350, 625, "12345-67"),
+		block(54, 624, "ИНН 5000000000"), block(350, 588, "40000000000000000001"), block(54, 566, "Плательщик"),
+		block(54, 550, "АО Банк плательщика"), block(350, 550, "040000001"), block(350, 538, "30100000000000000001"), block(54, 526, "Банк Плательщика"),
+		block(54, 514, "АО Банк получателя"), block(350, 514, "040000002"), block(350, 502, "30100000000000000002"), block(54, 489, "Банк Получателя"),
+		block(54, 477, "ИНН 5000000001"), block(350, 477, "40000000000000000002"), block(54, 460, "УФК по Тестовой области"),
+		block(302, 440, "Вид оп."), block(350, 440, "16"), block(54, 416, "Получатель"),
+		block(54, 405, "Назначение платежа"), block(54, 391, "Синтетический налоговый платеж"), block(54, 380, "НДС не облагается"),
+	}
+	document, err := parseDocument(blocks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.Type != payment.PaymentWarrant || document.Purpose != "Синтетический налоговый платеж НДС не облагается" {
+		t.Fatalf("unexpected document: %+v", document)
+	}
+}
+
+func TestParseRotatedStatementSummary(t *testing.T) {
+	blocks := []pdf.TextBlock{
+		block(70, 33, "Количество операций"), block(110, 33, "Итого оборотов"),
+		block(40, 170, "Дебет"), block(40, 390, "Кредит"),
+		block(20, 610, "Всего"),
+		block(70, 170, "7"), block(70, 390, "3"), block(70, 610, "10"),
+		block(110, 170, "12 345,67"), block(110, 390, "76 543,21"),
+	}
+	want := statementSummary{Count: 10, Debit: 1_234_567, Credit: 7_654_321}
+	if got := parseStatementSummary(blocks); got != want {
+		t.Fatalf("unexpected statement summary: %+v", got)
 	}
 }
 

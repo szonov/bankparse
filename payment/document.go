@@ -26,6 +26,7 @@ type Type string
 
 const (
 	PaymentOrder    Type = "payment_order"
+	PaymentWarrant  Type = "payment_warrant"
 	PaymentRequest  Type = "payment_request"
 	CollectionOrder Type = "collection_order"
 	BankOrder       Type = "bank_order"

@@ -25,6 +25,8 @@ var (
 	ErrUnknownFormat            = errors.New("unknown bank file format")
 	ErrStatementInfoNotDetected = errors.New("statement info not detected")
 	ErrStatementInfoAmbiguous   = errors.New("ambiguous statement info")
+	ErrDocumentCountMismatch    = paymentpdf.ErrDocumentCountMismatch
+	ErrDocumentTotalsMismatch   = paymentpdf.ErrDocumentTotalsMismatch
 )
 
 type StatementInfo struct {

@@ -123,6 +123,13 @@ func TestParseAmount(t *testing.T) {
 	}
 }
 
+func TestParsePaymentWarrantType(t *testing.T) {
+	got, err := parseDocumentType("Платежный ордер")
+	if err != nil || got != payment.PaymentWarrant {
+		t.Fatalf("unexpected document type: %q, %v", got, err)
+	}
+}
+
 func TestParseLegacyEncodings(t *testing.T) {
 	for name, encoding := range map[string]*charmap.Charmap{"windows-1251": charmap.Windows1251, "DOS": charmap.CodePage866} {
 		t.Run(name, func(t *testing.T) {
