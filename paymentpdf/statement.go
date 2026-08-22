@@ -14,13 +14,14 @@ var (
 	ErrStatementInfoNotDetected = errors.New("PDF statement info not detected")
 	ErrAmbiguousStatementInfo   = errors.New("ambiguous PDF statement info")
 
-	statementTitleRE = regexp.MustCompile(`(?i)(выписка\s+операций\s+по\s+лицевому\s+счету|выписка\s+по\s+счету\s+клиента|account\s+statement)`)
-	headerAccountRE  = regexp.MustCompile(`(?i)(?:выписка\s+операций\s+по\s+лицевому\s+счету|(?:номер\s+сч[её]та|account\s+number)(?:\s*/\s*(?:номер\s+сч[её]та|account\s+number))?\s*:?)[^0-9]{0,20}([0-9][0-9\s]{18,24}[0-9])`)
-	accountLabelRE   = regexp.MustCompile(`(?i)^(?:номер\s+сч[её]та|account\s+number)(?:\s*/\s*(?:номер\s+сч[её]та|account\s+number))?\s*:?\s*$`)
-	bankFieldRE      = regexp.MustCompile(`(?i)^(?:банк|bank)(?:\s*/\s*(?:банк|bank))?\s*(?::\s*(.*))?$`)
-	organizationRE   = regexp.MustCompile(`(?i)(?:\bbank\b|банк|кредитн\S*\s+организац|(?:^|\s)(?:АО|ПАО|ООО)(?:\s|$)|филиал)`)
-	quotedBankRE     = regexp.MustCompile(`(?i)(?:АО|ПАО)\s*[«"][^»"]*банк[^»"]*[»"]`)
-	statementTableRE = regexp.MustCompile(`(?i)(?:сумма\s+по\s+дебету|реквизиты\s+корреспондента|counter\s+party\s+details)`)
+	statementTitleRE   = regexp.MustCompile(`(?i)(выписка\s+операций\s+по\s+лицевому\s+счету|выписка\s+по\s+счету\s+клиента|account\s+statement)`)
+	headerAccountRE    = regexp.MustCompile(`(?i)(?:выписка\s+операций\s+по\s+лицевому\s+счету|(?:номер\s+сч[её]та|account\s+number)(?:\s*/\s*(?:номер\s+сч[её]та|account\s+number))?\s*:?)[^0-9]{0,20}([0-9][0-9\s]{18,24}[0-9])`)
+	accountLabelRE     = regexp.MustCompile(`(?i)^(?:номер\s+сч[её]та|account\s+number)(?:\s*/\s*(?:номер\s+сч[её]та|account\s+number))?\s*:?\s*$`)
+	bankFieldRE        = regexp.MustCompile(`(?i)^(?:банк|bank)(?:\s*/\s*(?:банк|bank))?\s*(?::\s*(.*))?$`)
+	bankOrganizationRE = regexp.MustCompile(`(?i)(?:\bbank\b|банк|кредитн\S*\s+организац)`)
+	organizationRE     = regexp.MustCompile(`(?i)(?:\bbank\b|банк|кредитн\S*\s+организац|(?:^|\s)(?:АО|ПАО|ООО)(?:\s|$)|филиал)`)
+	quotedBankRE       = regexp.MustCompile(`(?i)(?:АО|ПАО)\s*[«"][^»"]*банк[^»"]*[»"]`)
+	statementTableRE   = regexp.MustCompile(`(?i)(?:сумма\s+по\s+дебету|реквизиты\s+корреспондента|counter\s+party\s+details)`)
 )
 
 type StatementInfo struct {
@@ -98,6 +99,16 @@ func detectStatementInfoBlocks(blocks []pdf.TextBlock) (StatementInfo, error) {
 			}
 		}
 	}
+	// Rotated PDFs can emit a visually adjacent account before the title even
+	// when the account is drawn to its right. Accept only a standalone account
+	// in a narrow window so transaction rows cannot become statement metadata.
+	start := max(titleIndex-2, 0)
+	end := min(titleIndex+2, len(blocks)-1)
+	for index := start; index <= end; index++ {
+		if account := normalizeAccount(blocks[index].Text); account != "" {
+			accounts[account] = struct{}{}
+		}
+	}
 	if len(accounts) == 0 {
 		return StatementInfo{}, ErrStatementInfoNotDetected
 	}
@@ -159,9 +170,18 @@ func isStatementHeaderLabel(text string) bool {
 }
 
 func organizationBeforeTitle(blocks []pdf.TextBlock, titleIndex int) string {
+	// Prefer text which identifies a bank. A client organization can be the
+	// closest block before the title in rotated statement headers.
+	if name := organizationBeforeTitleMatching(blocks, titleIndex, bankOrganizationRE); name != "" {
+		return name
+	}
+	return organizationBeforeTitleMatching(blocks, titleIndex, organizationRE)
+}
+
+func organizationBeforeTitleMatching(blocks []pdf.TextBlock, titleIndex int, pattern *regexp.Regexp) string {
 	for index := titleIndex - 1; index >= 0; index-- {
 		text := cleanStatementText(blocks[index].Text)
-		if organizationRE.MatchString(text) && !bankFieldRE.MatchString(text) {
+		if pattern.MatchString(text) && !bankFieldRE.MatchString(text) {
 			if location := quotedBankRE.FindStringIndex(text); location != nil && strings.TrimSpace(text[location[1]:]) != "" {
 				return cleanStatementText(text[location[0]:location[1]])
 			}

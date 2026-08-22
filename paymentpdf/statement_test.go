@@ -40,6 +40,10 @@ func TestDetectStatementInfoBlocks(t *testing.T) {
 			blocks: []pdf.TextBlock{{Text: "Дополнительный офис № 1АО \"Тестовый банк\"РЕГИОНАЛЬНЫЙ БАНК"}, {Text: "ВЫПИСКА ОПЕРАЦИЙ ПО ЛИЦЕВОМУ СЧЕТУ"}, {Text: "40000000000000000001"}},
 			want:   StatementInfo{AccountNumber: "40000000000000000001", BankName: "АО \"Тестовый банк\""},
 		},
+		"rotated header order": {
+			blocks: []pdf.TextBlock{{Text: "Офис № 7ПАО \"Тестовый банк\"РЕГИОНАЛЬНЫЙ БАНК"}, {Text: "01.02.2020"}, {Text: "40000000000000000001"}, {Text: "ООО \"Тестовый клиент\""}, {Text: "ВЫПИСКА ОПЕРАЦИЙ ПО ЛИЦЕВОМУ СЧЕТУ"}},
+			want:   StatementInfo{AccountNumber: "40000000000000000001", BankName: "ПАО \"Тестовый банк\""},
+		},
 		"ignores operation rows": {
 			blocks: []pdf.TextBlock{{X: 100, Y: 700, Text: "Выписка по счету клиента"}, {X: 50, Y: 670, Text: "Номер счета: 40000000000000000002"}, {X: 30, Y: 300, Text: "40000000000000000003 Банк контрагента"}, {X: 30, Y: 280, Text: "Банк получателя: Иной банк"}},
 			want:   StatementInfo{AccountNumber: "40000000000000000002"},
