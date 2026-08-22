@@ -40,7 +40,7 @@ var ErrDocumentCountMismatch = errors.New("PDF document count does not match sta
 
 // ErrDocumentTotalsMismatch reports that parsed document amounts do not add up
 // to the debit and credit turnovers printed in the statement summary.
-var ErrDocumentTotalsMismatch = errors.New("PDF document totals do not match statement summary")
+var ErrDocumentTotalsMismatch = payment.ErrDocumentTotalsMismatch
 
 type statementSummary struct {
 	Count  int

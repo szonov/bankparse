@@ -190,3 +190,71 @@ func TestReaderWalkDocumentsReturnsCallbackError(t *testing.T) {
 		t.Fatalf("WalkDocuments() error = %v", err)
 	}
 }
+
+func TestReaderValidatesAccountTurnovers(t *testing.T) {
+	source := `1CClientBankExchange
+РасчСчет=40000000000000000001
+СекцияРасчСчет
+РасчСчет=40000000000000000001
+ВсегоПоступило=25.50
+ВсегоСписано=10.25
+КонецРасчСчет
+СекцияДокумент=Платежное поручение
+Номер=1
+Дата=01.02.2026
+Сумма=10.25
+ПлательщикРасчСчет=40000000000000000001
+ПолучательРасчСчет=40000000000000000002
+КонецДокумента
+СекцияДокумент=Платежное поручение
+Номер=2
+Дата=02.02.2026
+Сумма=25.50
+ПлательщикРасчСчет=40000000000000000003
+ПолучательРасчСчет=40000000000000000001
+КонецДокумента
+КонецФайла
+`
+	if _, err := Parse([]byte(source)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReaderRejectsAccountTurnoverMismatch(t *testing.T) {
+	source := `1CClientBankExchange
+РасчСчет=40000000000000000001
+СекцияРасчСчет
+РасчСчет=40000000000000000001
+ВсегоСписано=10.26
+КонецРасчСчет
+СекцияДокумент=Платежное поручение
+Номер=1
+Дата=01.02.2026
+Сумма=10.25
+ПлательщикРасчСчет=40000000000000000001
+ПолучательРасчСчет=40000000000000000002
+КонецДокумента
+КонецФайла
+`
+	_, err := Parse([]byte(source))
+	if !errors.Is(err, ErrDocumentTotalsMismatch) {
+		t.Fatalf("Parse() error = %v; want %v", err, ErrDocumentTotalsMismatch)
+	}
+}
+
+func TestReaderIgnoresMissingAccountTurnovers(t *testing.T) {
+	source := `1CClientBankExchange
+СекцияРасчСчет
+РасчСчет=40000000000000000001
+КонецРасчСчет
+СекцияДокумент=Банковский ордер
+Номер=1
+Дата=01.02.2026
+Сумма=1
+КонецДокумента
+КонецФайла
+`
+	if _, err := Parse([]byte(source)); err != nil {
+		t.Fatal(err)
+	}
+}

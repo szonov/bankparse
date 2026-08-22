@@ -22,6 +22,7 @@ var (
 	ErrInvalidFormat            = errors.New("invalid 1CClientBankExchange format")
 	ErrStatementInfoNotDetected = errors.New("statement info not detected")
 	ErrAmbiguousAccounts        = errors.New("ambiguous statement accounts")
+	ErrDocumentTotalsMismatch   = payment.ErrDocumentTotalsMismatch
 )
 
 type Info struct {
@@ -37,6 +38,11 @@ type Exchange struct {
 }
 
 type Account struct{ Fields map[string]string }
+
+type turnovers struct {
+	debit  int64
+	credit int64
+}
 
 // Reader incrementally parses a single 1CClientBankExchange stream.
 type Reader struct {
@@ -158,6 +164,7 @@ func (r *Reader) WalkDocuments(executor payment.DocumentFunc) error {
 
 	var current map[string]string
 	var section string
+	actualTurnovers := make(map[string]*turnovers)
 	for {
 		line, err := r.readLine()
 		if err != nil && !errors.Is(err, io.EOF) {
@@ -192,6 +199,7 @@ func (r *Reader) WalkDocuments(executor payment.DocumentFunc) error {
 			if err != nil {
 				return err
 			}
+			addDocumentTurnovers(actualTurnovers, document)
 			if err := executor(document); err != nil {
 				if errors.Is(err, payment.ErrStop) {
 					return nil
@@ -238,7 +246,61 @@ func (r *Reader) WalkDocuments(executor payment.DocumentFunc) error {
 	if r.info.Account == "" {
 		return fmt.Errorf("%w: account is missing", ErrInvalidFormat)
 	}
+	if err := r.validateTurnovers(actualTurnovers[r.info.Account]); err != nil {
+		return err
+	}
 	return nil
+}
+
+func addDocumentTurnovers(all map[string]*turnovers, document payment.Document) {
+	if account := document.Payer.Account; account != "" {
+		if all[account] == nil {
+			all[account] = &turnovers{}
+		}
+		all[account].debit += document.Amount.Kopecks
+	}
+	if account := document.Recipient.Account; account != "" {
+		if all[account] == nil {
+			all[account] = &turnovers{}
+		}
+		all[account].credit += document.Amount.Kopecks
+	}
+}
+
+func (r *Reader) validateTurnovers(actual *turnovers) error {
+	if actual == nil {
+		actual = &turnovers{}
+	}
+	for _, account := range r.info.Accounts {
+		if account.Fields["РасчСчет"] != r.info.Account {
+			continue
+		}
+		expectedDebit, hasDebit, err := statementTurnover(account.Fields, "ВсегоСписано")
+		if err != nil {
+			return err
+		}
+		expectedCredit, hasCredit, err := statementTurnover(account.Fields, "ВсегоПоступило")
+		if err != nil {
+			return err
+		}
+		if (hasDebit && actual.debit != expectedDebit) || (hasCredit && actual.credit != expectedCredit) {
+			return fmt.Errorf("%w: debit summary=%d parsed=%d, credit summary=%d parsed=%d",
+				ErrDocumentTotalsMismatch, expectedDebit, actual.debit, expectedCredit, actual.credit)
+		}
+	}
+	return nil
+}
+
+func statementTurnover(fields map[string]string, key string) (int64, bool, error) {
+	value, ok := fields[key]
+	if !ok || strings.TrimSpace(value) == "" {
+		return 0, false, nil
+	}
+	amount, err := parseAmount(value)
+	if err != nil {
+		return 0, false, fmt.Errorf("%w: account %s: %v", ErrInvalidFormat, key, err)
+	}
+	return amount.Kopecks, true, nil
 }
 
 func (r *Reader) readLine() (string, error) {

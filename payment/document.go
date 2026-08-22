@@ -9,8 +9,14 @@ import (
 	"time"
 )
 
-// ErrStop can be returned by DocumentFunc to stop a document walk successfully.
-var ErrStop = errors.New("stop walking payment documents")
+var (
+	// ErrStop can be returned by DocumentFunc to stop a document walk successfully.
+	ErrStop = errors.New("stop walking payment documents")
+
+	// ErrDocumentTotalsMismatch reports that parsed document amounts do not add
+	// up to the debit and credit turnovers declared by the source statement.
+	ErrDocumentTotalsMismatch = errors.New("document totals do not match statement summary")
+)
 
 // DocumentFunc receives documents as they are parsed. Returning ErrStop stops
 // the walk successfully; any other error stops the walk and is returned.

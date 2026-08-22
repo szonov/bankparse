@@ -26,7 +26,7 @@ var (
 	ErrStatementInfoNotDetected = errors.New("statement info not detected")
 	ErrStatementInfoAmbiguous   = errors.New("ambiguous statement info")
 	ErrDocumentCountMismatch    = paymentpdf.ErrDocumentCountMismatch
-	ErrDocumentTotalsMismatch   = paymentpdf.ErrDocumentTotalsMismatch
+	ErrDocumentTotalsMismatch   = payment.ErrDocumentTotalsMismatch
 )
 
 type StatementInfo struct {
