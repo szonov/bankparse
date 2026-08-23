@@ -174,6 +174,30 @@ func TestParsePartyRemovesZeroKPPFromEntrepreneurName(t *testing.T) {
 	}
 }
 
+func TestParsePartyRemovesSeparateZeroKPPFromEntrepreneurName(t *testing.T) {
+	blocks := []pdf.TextBlock{
+		block(54, 624, "ИНН"), block(82, 624, "500000000001"),
+		block(180, 610, "0"), block(195, 610, "Индивидуальный предприниматель Тестов Алексей Иванович"),
+		block(350, 590, "40000000000000000003"),
+	}
+	party := parseParty(blocks, 570, 640)
+	if party.INN != "500000000001" || party.KPP != "" || party.Name != "Индивидуальный предприниматель Тестов Алексей Иванович" {
+		t.Fatalf("unexpected party: %+v", party)
+	}
+}
+
+func TestParsePartyPreservesLeadingZeroForNonEntrepreneurName(t *testing.T) {
+	blocks := []pdf.TextBlock{
+		block(54, 624, "ИНН"), block(82, 624, "500000000001"),
+		block(180, 610, "0 Тестовая организация"),
+		block(350, 590, "40000000000000000003"),
+	}
+	party := parseParty(blocks, 570, 640)
+	if party.Name != "0 Тестовая организация" {
+		t.Fatalf("name=%q", party.Name)
+	}
+}
+
 func TestParseBankOrder(t *testing.T) {
 	blocks := []pdf.TextBlock{
 		block(60, 820, "02.03.2026"), block(30, 806, "БАНКОВСКИЙ ОРДЕР № 460857"),
