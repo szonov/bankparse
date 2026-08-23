@@ -366,3 +366,125 @@ func TestReaderIgnoresMissingAccountTurnovers(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDetectAccountsReturnsUniqueDeclaredAccounts(t *testing.T) {
+	source := `1CClientBankExchange
+РасчСчет=40000000000000000001
+РасчСчет=40000000000000000002
+СекцияРасчСчет
+РасчСчет=40000000000000000001
+КонецРасчСчет
+КонецФайла
+`
+	info, err := DetectAccounts(bytes.NewBufferString(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"40000000000000000001", "40000000000000000002"}
+	if len(info.AccountNumbers) != len(want) || info.AccountNumbers[0] != want[0] || info.AccountNumbers[1] != want[1] {
+		t.Fatalf("accounts=%v; want %v", info.AccountNumbers, want)
+	}
+	if _, err := DetectInfo(bytes.NewBufferString(source)); !errors.Is(err, ErrAmbiguousAccounts) {
+		t.Fatalf("DetectInfo() error=%v; want %v", err, ErrAmbiguousAccounts)
+	}
+}
+
+func TestReaderSelectedAccountFiltersDocumentsAndValidatesAfterCallbacks(t *testing.T) {
+	source := `1CClientBankExchange
+РасчСчет=40000000000000000001
+РасчСчет=40000000000000000002
+СекцияРасчСчет
+РасчСчет=40000000000000000001
+ВсегоСписано=10.00
+ВсегоПоступило=3.00
+КонецРасчСчет
+СекцияРасчСчет
+РасчСчет=40000000000000000002
+ВсегоСписано=7.00
+ВсегоПоступило=10.00
+КонецРасчСчет
+СекцияДокумент=Платежное поручение
+Номер=1
+Дата=01.02.2026
+Сумма=10.00
+ПлательщикРасчСчет=40000000000000000001
+ПолучательРасчСчет=40000000000000000002
+КонецДокумента
+СекцияДокумент=Платежное поручение
+Номер=2
+Дата=02.02.2026
+Сумма=7.00
+ПлательщикРасчСчет=40000000000000000002
+ПолучательРасчСчет=40000000000000000003
+КонецДокумента
+СекцияДокумент=Платежное поручение
+Номер=3
+Дата=03.02.2026
+Сумма=3.00
+ПлательщикРасчСчет=40000000000000000004
+ПолучательРасчСчет=40000000000000000001
+КонецДокумента
+КонецФайла
+`
+	for account, wantNumbers := range map[string][]string{
+		"40000000000000000001": {"1", "3"},
+		"40000000000000000002": {"1", "2"},
+	} {
+		reader, err := NewForAccount(bytes.NewBufferString(source), account)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		if err := reader.WalkDocuments(func(document payment.Document) error {
+			got = append(got, document.Number)
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != len(wantNumbers) || got[0] != wantNumbers[0] || got[1] != wantNumbers[1] {
+			t.Fatalf("account %s documents=%v; want %v", account, got, wantNumbers)
+		}
+	}
+}
+
+func TestReaderSelectedAccountReportsMismatchAfterCallbacks(t *testing.T) {
+	source := `1CClientBankExchange
+РасчСчет=40000000000000000001
+РасчСчет=40000000000000000002
+СекцияРасчСчет
+РасчСчет=40000000000000000002
+ВсегоСписано=8.00
+КонецРасчСчет
+СекцияДокумент=Платежное поручение
+Номер=1
+Дата=01.02.2026
+Сумма=7.00
+ПлательщикРасчСчет=40000000000000000002
+ПолучательРасчСчет=40000000000000000003
+КонецДокумента
+КонецФайла
+`
+	reader, err := NewForAccount(bytes.NewBufferString(source), "40000000000000000002")
+	if err != nil {
+		t.Fatal(err)
+	}
+	callbacks := 0
+	err = reader.WalkDocuments(func(payment.Document) error {
+		callbacks++
+		return nil
+	})
+	if callbacks != 1 || !errors.Is(err, ErrDocumentTotalsMismatch) {
+		t.Fatalf("callbacks=%d error=%v", callbacks, err)
+	}
+}
+
+func TestReaderSelectedAccountRejectsUnknownAccount(t *testing.T) {
+	reader, err := NewForAccount(bytes.NewBufferString("1CClientBankExchange\nРасчСчет=40000000000000000001\nКонецФайла\n"), "40000000000000000002")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = reader.WalkDocuments(func(payment.Document) error { return nil })
+	if !errors.Is(err, ErrAccountNotFound) {
+		t.Fatalf("WalkDocuments() error=%v; want %v", err, ErrAccountNotFound)
+	}
+}

@@ -25,6 +25,7 @@ var (
 	ErrUnknownFormat            = errors.New("unknown bank file format")
 	ErrStatementInfoNotDetected = errors.New("statement info not detected")
 	ErrStatementInfoAmbiguous   = errors.New("ambiguous statement info")
+	ErrStatementAccountNotFound = errors.New("statement account not found")
 	ErrDocumentCountMismatch    = paymentpdf.ErrDocumentCountMismatch
 	ErrDocumentTotalsMismatch   = payment.ErrDocumentTotalsMismatch
 )
@@ -32,6 +33,38 @@ var (
 type StatementInfo struct {
 	AccountNumber string `json:"account_number"`
 	BankName      string `json:"bank_name,omitempty"`
+}
+
+// DetectStatementAccounts returns every unique account declared by a statement.
+// PDF and single-account 1C statements return a one-element slice.
+func DetectStatementAccounts(reader io.ReaderAt, size int64) ([]StatementInfo, error) {
+	format, err := DetectFormat(reader, size)
+	if err != nil {
+		return nil, err
+	}
+	if format == FormatPDF {
+		info, err := DetectStatementInfo(reader, size)
+		if err != nil {
+			return nil, err
+		}
+		return []StatementInfo{info}, nil
+	}
+	info, err := bankexchange.DetectAccounts(io.NewSectionReader(reader, 0, size))
+	if errors.Is(err, bankexchange.ErrStatementInfoNotDetected) {
+		return nil, ErrStatementInfoNotDetected
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read 1CClientBankExchange accounts: %w", err)
+	}
+	bankName := strings.Join(strings.Fields(info.Sender), " ")
+	accounts := make([]StatementInfo, 0, len(info.AccountNumbers))
+	for _, account := range info.AccountNumbers {
+		if normalizeStatementAccount(account) == "" {
+			return nil, errors.New("invalid statement account")
+		}
+		accounts = append(accounts, StatementInfo{AccountNumber: account, BankName: bankName})
+	}
+	return accounts, nil
 }
 
 const detectionProbeSize = 4096
@@ -61,6 +94,38 @@ func Open(reader io.ReaderAt, size int64) (payment.Walker, error) {
 		return nil, err
 	}
 	return OpenFormat(format, reader, size)
+}
+
+// OpenAccount opens a statement for one explicitly selected account. For 1C
+// exchanges it emits only documents where the account is payer or recipient
+// and validates that account's turnovers after all callbacks.
+func OpenAccount(reader io.ReaderAt, size int64, account string) (payment.Walker, error) {
+	accounts, err := DetectStatementAccounts(reader, size)
+	if err != nil {
+		return nil, err
+	}
+	found := false
+	for _, info := range accounts {
+		if info.AccountNumber == account {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, ErrStatementAccountNotFound
+	}
+	format, err := DetectFormat(reader, size)
+	if err != nil {
+		return nil, err
+	}
+	if format == FormatPDF {
+		return OpenFormat(format, reader, size)
+	}
+	selected, err := bankexchange.NewForAccount(io.NewSectionReader(reader, 0, size), account)
+	if err != nil {
+		return nil, fmt.Errorf("open 1CClientBankExchange account: %w", err)
+	}
+	return selected, nil
 }
 
 // DetectStatementInfo extracts statement-wide metadata without changing any
@@ -99,7 +164,7 @@ func DetectStatementInfo(reader io.ReaderAt, size int64) (StatementInfo, error) 
 			return StatementInfo{}, fmt.Errorf("read 1CClientBankExchange info: %w", err)
 		}
 		if normalizeStatementAccount(info.Account) == "" {
-			return StatementInfo{}, fmt.Errorf("invalid statement account %q", info.Account)
+			return StatementInfo{}, errors.New("invalid statement account")
 		}
 		return StatementInfo{AccountNumber: info.Account, BankName: strings.Join(strings.Fields(info.Sender), " ")}, nil
 	default:
@@ -135,6 +200,13 @@ func OpenFormat(format Format, source io.ReaderAt, size int64) (payment.Walker, 
 		}
 		return paymentpdf.New(reader), nil
 	case FormatClientBankExchange:
+		_, err := bankexchange.DetectInfo(io.NewSectionReader(source, 0, size))
+		if errors.Is(err, bankexchange.ErrAmbiguousAccounts) {
+			return nil, ErrStatementInfoAmbiguous
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read 1CClientBankExchange info: %w", err)
+		}
 		reader, err := bankexchange.New(io.NewSectionReader(source, 0, size))
 		if err != nil {
 			return nil, fmt.Errorf("open 1CClientBankExchange: %w", err)

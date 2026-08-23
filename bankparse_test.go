@@ -136,3 +136,49 @@ func TestOpenClientBankExchange(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestClientBankExchangeMultipleAccounts(t *testing.T) {
+	data := []byte(`1CClientBankExchange
+Отправитель=АО Тестовый Банк
+РасчСчет=40000000000000000001
+РасчСчет=40000000000000000002
+СекцияДокумент=Платежное поручение
+Номер=1
+Дата=01.02.2026
+Сумма=5.00
+ПлательщикРасчСчет=40000000000000000002
+ПолучательРасчСчет=40000000000000000003
+КонецДокумента
+КонецФайла
+`)
+	accounts, err := DetectStatementAccounts(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(accounts) != 2 || accounts[0].AccountNumber != "40000000000000000001" || accounts[1].AccountNumber != "40000000000000000002" {
+		t.Fatalf("accounts=%v", accounts)
+	}
+	if _, err := DetectStatementInfo(bytes.NewReader(data), int64(len(data))); !errors.Is(err, ErrStatementInfoAmbiguous) {
+		t.Fatalf("DetectStatementInfo() error=%v", err)
+	}
+	if _, err := Open(bytes.NewReader(data), int64(len(data))); !errors.Is(err, ErrStatementInfoAmbiguous) {
+		t.Fatalf("Open() error=%v", err)
+	}
+	parser, err := OpenAccount(bytes.NewReader(data), int64(len(data)), "40000000000000000002")
+	if err != nil {
+		t.Fatal(err)
+	}
+	callbacks := 0
+	if err := parser.WalkDocuments(func(document payment.Document) error {
+		callbacks++
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if callbacks != 1 {
+		t.Fatalf("callbacks=%d; want 1", callbacks)
+	}
+	if _, err := OpenAccount(bytes.NewReader(data), int64(len(data)), "40000000000000000009"); !errors.Is(err, ErrStatementAccountNotFound) {
+		t.Fatalf("OpenAccount() error=%v", err)
+	}
+}

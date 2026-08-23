@@ -22,6 +22,7 @@ var (
 	ErrInvalidFormat            = errors.New("invalid 1CClientBankExchange format")
 	ErrStatementInfoNotDetected = errors.New("statement info not detected")
 	ErrAmbiguousAccounts        = errors.New("ambiguous statement accounts")
+	ErrAccountNotFound          = errors.New("statement account not found")
 	ErrDocumentTotalsMismatch   = payment.ErrDocumentTotalsMismatch
 )
 
@@ -29,6 +30,7 @@ type Info struct {
 	Version, Encoding, Sender, Account string
 	DateFrom, DateTo                   time.Time
 	Accounts                           []Account
+	AccountNumbers                     []string
 }
 
 // Exchange is the materialized result returned by Parse.
@@ -46,9 +48,26 @@ type turnovers struct {
 
 // Reader incrementally parses a single 1CClientBankExchange stream.
 type Reader struct {
-	lines  *bufio.Reader
-	info   Info
-	walked bool
+	lines           *bufio.Reader
+	info            Info
+	walked          bool
+	selectedAccount string
+}
+
+// NewForAccount creates a streaming reader that emits and validates documents
+// related to account. The same exchange can be opened separately for each of
+// its declared accounts.
+func NewForAccount(source io.Reader, account string) (*Reader, error) {
+	if strings.TrimSpace(account) == "" {
+		return nil, ErrAccountNotFound
+	}
+	r, err := New(source)
+	if err != nil {
+		return nil, err
+	}
+	r.selectedAccount = account
+	r.info.Account = account
+	return r, nil
 }
 
 func New(source io.Reader) (*Reader, error) {
@@ -73,10 +92,23 @@ func New(source io.Reader) (*Reader, error) {
 	return r, nil
 }
 
-// DetectInfo reads the exchange header and account sections without parsing or
-// materializing payment documents. A top-level РасчСчет is authoritative; when
-// it is absent all account sections must identify the same account.
+// DetectInfo reads exchange metadata without materializing payment documents.
+// It succeeds only when exactly one unique account is declared.
 func DetectInfo(source io.Reader) (Info, error) {
+	info, err := DetectAccounts(source)
+	if err != nil {
+		return Info{}, err
+	}
+	if len(info.AccountNumbers) > 1 {
+		return Info{}, ErrAmbiguousAccounts
+	}
+	info.Account = info.AccountNumbers[0]
+	return info, nil
+}
+
+// DetectAccounts returns all unique accounts declared by top-level РасчСчет
+// fields and СекцияРасчСчет sections, preserving their first-seen order.
+func DetectAccounts(source io.Reader) (Info, error) {
 	r, err := New(source)
 	if err != nil {
 		return Info{}, err
@@ -95,13 +127,13 @@ func DetectInfo(source io.Reader) (Info, error) {
 		case line == "КонецРасчСчет":
 			inAccount = false
 		case strings.HasPrefix(line, "СекцияДокумент=") || line == "КонецФайла":
-			return detectedInfo(r.info, accounts)
+			return detectedAccounts(r.info, accounts)
 		default:
 			key, value, ok := strings.Cut(line, "=")
 			if ok {
 				key, value = strings.TrimSpace(key), strings.TrimSpace(value)
 				if inAccount && key == "РасчСчет" && value != "" {
-					accounts[value] = struct{}{}
+					appendAccountNumber(&r.info, accounts, value)
 				} else if !inAccount {
 					switch key {
 					case "ВерсияФормата":
@@ -109,7 +141,7 @@ func DetectInfo(source io.Reader) (Info, error) {
 					case "Отправитель":
 						r.info.Sender = value
 					case "РасчСчет":
-						r.info.Account = value
+						appendAccountNumber(&r.info, accounts, value)
 					case "ДатаНачала":
 						r.info.DateFrom, _ = parseDate(value)
 					case "ДатаКонца":
@@ -119,25 +151,27 @@ func DetectInfo(source io.Reader) (Info, error) {
 			}
 		}
 		if atEOF {
-			return detectedInfo(r.info, accounts)
+			return detectedAccounts(r.info, accounts)
 		}
 	}
 }
 
-func detectedInfo(info Info, accounts map[string]struct{}) (Info, error) {
-	if info.Account != "" {
-		return info, nil
-	}
+func detectedAccounts(info Info, accounts map[string]struct{}) (Info, error) {
 	if len(accounts) == 0 {
 		return Info{}, ErrStatementInfoNotDetected
 	}
-	if len(accounts) > 1 {
-		return Info{}, ErrAmbiguousAccounts
-	}
-	for account := range accounts {
-		info.Account = account
-	}
 	return info, nil
+}
+
+func appendAccountNumber(info *Info, seen map[string]struct{}, account string) {
+	if account == "" {
+		return
+	}
+	if _, ok := seen[account]; ok {
+		return
+	}
+	seen[account] = struct{}{}
+	info.AccountNumbers = append(info.AccountNumbers, account)
 }
 
 // Info returns metadata parsed so far. It is complete after WalkDocuments.
@@ -165,6 +199,7 @@ func (r *Reader) WalkDocuments(executor payment.DocumentFunc) error {
 	var current map[string]string
 	var section string
 	actualTurnovers := make(map[string]*turnovers)
+	declaredAccounts := make(map[string]struct{})
 	for {
 		line, err := r.readLine()
 		if err != nil && !errors.Is(err, io.EOF) {
@@ -183,6 +218,9 @@ func (r *Reader) WalkDocuments(executor payment.DocumentFunc) error {
 			continue
 		}
 		if strings.HasPrefix(line, "СекцияДокумент=") {
+			if _, err := r.accountForWalk(); err != nil {
+				return err
+			}
 			current = map[string]string{}
 			section = "document"
 			current["СекцияДокумент"] = strings.TrimSpace(strings.TrimPrefix(line, "СекцияДокумент="))
@@ -190,6 +228,7 @@ func (r *Reader) WalkDocuments(executor payment.DocumentFunc) error {
 		}
 		if line == "КонецРасчСчет" {
 			r.info.Accounts = append(r.info.Accounts, Account{Fields: current})
+			appendAccountNumber(&r.info, declaredAccounts, current["РасчСчет"])
 			current = nil
 			section = ""
 			continue
@@ -200,6 +239,15 @@ func (r *Reader) WalkDocuments(executor payment.DocumentFunc) error {
 				return err
 			}
 			addDocumentTurnovers(actualTurnovers, document)
+			account, selectErr := r.accountForWalk()
+			if selectErr != nil {
+				return selectErr
+			}
+			if r.selectedAccount != "" && document.Payer.Account != account && document.Recipient.Account != account {
+				current = nil
+				section = ""
+				continue
+			}
 			if err := executor(document); err != nil {
 				if errors.Is(err, payment.ErrStop) {
 					return nil
@@ -229,7 +277,7 @@ func (r *Reader) WalkDocuments(executor payment.DocumentFunc) error {
 		case "Отправитель":
 			r.info.Sender = value
 		case "РасчСчет":
-			r.info.Account = value
+			appendAccountNumber(&r.info, declaredAccounts, value)
 		case "ДатаНачала":
 			r.info.DateFrom, _ = parseDate(value)
 		case "ДатаКонца":
@@ -240,16 +288,34 @@ func (r *Reader) WalkDocuments(executor payment.DocumentFunc) error {
 			break
 		}
 	}
-	if r.info.Account == "" && len(r.info.Accounts) > 0 {
-		r.info.Account = r.info.Accounts[0].Fields["РасчСчет"]
+	account, err := r.accountForWalk()
+	if err != nil {
+		return err
 	}
-	if r.info.Account == "" {
-		return fmt.Errorf("%w: account is missing", ErrInvalidFormat)
-	}
-	if err := r.validateTurnovers(actualTurnovers[r.info.Account]); err != nil {
+	r.info.Account = account
+	if err := r.validateTurnovers(actualTurnovers[account]); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (r *Reader) accountForWalk() (string, error) {
+	if r.selectedAccount != "" {
+		for _, account := range r.info.AccountNumbers {
+			if account == r.selectedAccount {
+				return account, nil
+			}
+		}
+		return "", ErrAccountNotFound
+	}
+	switch len(r.info.AccountNumbers) {
+	case 0:
+		return "", fmt.Errorf("%w: account is missing", ErrInvalidFormat)
+	case 1:
+		return r.info.AccountNumbers[0], nil
+	default:
+		return "", ErrAmbiguousAccounts
+	}
 }
 
 func addDocumentTurnovers(all map[string]*turnovers, document payment.Document) {

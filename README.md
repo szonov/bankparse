@@ -85,9 +85,40 @@ fmt.Println(statement.AccountNumber, statement.BankName)
 Для PDF анализируется только первая страница и принимается только счёт,
 семантически связанный с общей шапкой выписки. PDF, которые начинаются сразу с
 отдельных платёжных документов, намеренно возвращают
-`ErrStatementInfoNotDetected`. Для `1CClientBankExchange` используются общие
-поля `РасчСчет` и `Отправитель`; при отсутствии общего счёта допускается один и
-тот же счёт из секций `СекцияРасчСчет`.
+`ErrStatementInfoNotDetected`. Для `1CClientBankExchange` используются поля
+`РасчСчет`, секции `СекцияРасчСчет` и поле `Отправитель`. Если файл объявляет
+несколько разных счетов, `DetectStatementInfo` возвращает
+`ErrStatementInfoAmbiguous` и не выбирает первый или последний счёт.
+
+Полный уникальный список счетов и явный выбор одного из них доступны через
+`DetectStatementAccounts` и `OpenAccount`:
+
+```go
+accounts, err := bankparse.DetectStatementAccounts(file, info.Size())
+if err != nil {
+	return err
+}
+
+selected := accounts[0].AccountNumber // выбирает вызывающее приложение
+parser, err := bankparse.OpenAccount(file, info.Size(), selected)
+if err != nil {
+	return err
+}
+
+var documents []payment.Document
+err = parser.WalkDocuments(func(document payment.Document) error {
+	documents = append(documents, document)
+	return nil
+})
+```
+
+Для явно выбранного счёта callback получает только документы, где он указан
+плательщиком или получателем. Внутренний перевод между двумя объявленными
+счетами доступен при отдельном открытии файла для каждого счёта. Проверка
+`ВсегоСписано` и `ВсегоПоступило` выполняется для выбранного счёта после всех
+callbacks; при несовпадении `WalkDocuments` возвращает
+`ErrDocumentTotalsMismatch`. Неизвестный счёт отклоняется при `OpenAccount` с
+`ErrStatementAccountNotFound`.
 
 `BankName` необязателен и содержит извлечённый, лишь минимально нормализованный
 текст, а не канонический идентификатор. Сопоставление со справочником банков,
@@ -127,7 +158,9 @@ err = reader.WalkDocuments(handleDocument)
 ```
 
 После полного обхода `reader.Info()` содержит метаданные обмена: версию формата,
-кодировку, отправителя, период и расчётные счета.
+кодировку, отправителя, период, секции счетов и уникальный список
+`AccountNumbers`. Для явного выбора счёта низкоуровневый пакет предоставляет
+`bankexchange.NewForAccount`.
 
 Для совместимости доступна функция `bankexchange.Parse([]byte)`, которая собирает
 метаданные и все документы в `bankexchange.Exchange`.
