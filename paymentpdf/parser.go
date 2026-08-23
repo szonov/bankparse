@@ -360,15 +360,32 @@ func parseParty(blocks []pdf.TextBlock, bottom, top float64) payment.Party {
 	if party.KPP == "" {
 		party.KPP = valueForLabel(region, "КПП", kppValueRE)
 	}
-	party.Name = regionText(blocks, bottom, top, func(block pdf.TextBlock) bool {
-		text := clean(block.Text)
-		return block.X < 275 && !innRE.MatchString(text) && !kppRE.MatchString(text) &&
-			!taxIDValueRE.MatchString(text) && !isFormLabel(text) && !accountRE.MatchString(text)
-	})
+	party.Name = partyNameRegionText(blocks, bottom, top)
 	// Individual entrepreneurs have no KPP. Some forms render the empty value
 	// as "КПП 0" in the same text block as the party name.
 	party.Name = clean(kppZeroPrefixRE.ReplaceAllString(party.Name, ""))
 	return party
+}
+
+func partyNameRegionText(blocks []pdf.TextBlock, bottom, top float64) string {
+	region := blocksInRegion(blocks, bottom, top)
+	var values []string
+	for _, block := range region {
+		text := clean(block.Text)
+		if block.X >= 275 || innRE.MatchString(text) || kppRE.MatchString(text) ||
+			taxIDValueRE.MatchString(text) || isFormLabel(text) {
+			continue
+		}
+		// Some bank forms emit an account reference as part of the payer name.
+		// Keep such mixed text intact, but exclude a standalone account block.
+		if accountRE.MatchString(text) && clean(accountRE.ReplaceAllString(text, " ")) == "" {
+			continue
+		}
+		if text != "" {
+			values = append(values, text)
+		}
+	}
+	return clean(strings.Join(values, " "))
 }
 
 func valueForLabel(blocks []pdf.TextBlock, label string, valuePattern *regexp.Regexp) string {

@@ -150,6 +150,18 @@ func TestParsePartyPrefersFormAccountColumn(t *testing.T) {
 	}
 }
 
+func TestParsePartyKeepsAccountAsPartOfName(t *testing.T) {
+	blocks := []pdf.TextBlock{
+		block(54, 624, "ИНН 5000000000"),
+		block(54, 610, "ООО Тестовый плательщик 40000000000000000009 по договору"),
+		block(350, 590, "40000000000000000001"),
+	}
+	party := parseParty(blocks, 570, 640)
+	if party.Account != "40000000000000000001" || party.Name != "ООО Тестовый плательщик 40000000000000000009 по договору" {
+		t.Fatalf("unexpected party: %+v", party)
+	}
+}
+
 func TestParsePartyRemovesZeroKPPFromEntrepreneurName(t *testing.T) {
 	blocks := []pdf.TextBlock{
 		block(54, 624, "ИНН"), block(82, 624, "500000000001"),
