@@ -174,21 +174,23 @@ func TestParsePartyRemovesZeroKPPFromEntrepreneurName(t *testing.T) {
 	}
 }
 
-func TestParsePartyRemovesSeparateZeroKPPFromEntrepreneurName(t *testing.T) {
+func TestParsePartyRemovesSeparateZeroKPPFromOrganizationName(t *testing.T) {
 	blocks := []pdf.TextBlock{
-		block(54, 624, "ИНН"), block(82, 624, "500000000001"),
-		block(180, 610, "0"), block(195, 610, "Индивидуальный предприниматель Тестов Алексей Иванович"),
+		block(54, 624, "ИНН"), block(82, 624, "5000000000"),
+		block(180, 624, "КПП"), block(210, 624, "0"),
+		block(54, 610, "Тестовое отделение банка"),
 		block(350, 590, "40000000000000000003"),
 	}
 	party := parseParty(blocks, 570, 640)
-	if party.INN != "500000000001" || party.KPP != "" || party.Name != "Индивидуальный предприниматель Тестов Алексей Иванович" {
+	if party.INN != "5000000000" || party.KPP != "" || party.Name != "Тестовое отделение банка" {
 		t.Fatalf("unexpected party: %+v", party)
 	}
 }
 
-func TestParsePartyPreservesLeadingZeroForNonEntrepreneurName(t *testing.T) {
+func TestParsePartyPreservesLeadingZeroWithoutZeroKPP(t *testing.T) {
 	blocks := []pdf.TextBlock{
-		block(54, 624, "ИНН"), block(82, 624, "500000000001"),
+		block(54, 624, "ИНН"), block(82, 624, "5000000000"),
+		block(180, 624, "КПП"), block(210, 624, "500000001"),
 		block(180, 610, "0 Тестовая организация"),
 		block(350, 590, "40000000000000000003"),
 	}

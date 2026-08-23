@@ -17,22 +17,24 @@ import (
 )
 
 var (
-	documentTitleRE          = regexp.MustCompile(`(?i)(ПЛАТЕЖНОЕ\s+ПОРУЧЕНИЕ|ПЛАТЕЖНЫЙ\s+ОРДЕР|ПЛАТЕЖНОЕ\s+ТРЕБОВАНИЕ|ИНКАССОВОЕ\s+ПОРУЧЕНИЕ|БАНКОВСКИЙ\s+ОРДЕР)\s*(?:№|N)\s*([^\s]+)`)
-	dateRE                   = regexp.MustCompile(`\b(\d{2}\.\d{2}\.\d{4})\b`)
-	accountRE                = regexp.MustCompile(`\b\d{20}\b`)
-	bikRE                    = regexp.MustCompile(`\b\d{9}\b`)
-	innRE                    = regexp.MustCompile(`(?i)ИНН\s*(\d{12}|\d{10})`)
-	kppRE                    = regexp.MustCompile(`(?i)КПП\s*(\d{9})`)
-	innValueRE               = regexp.MustCompile(`^(\d{10}|\d{12})$`)
-	kppValueRE               = regexp.MustCompile(`^\d{9}$`)
-	taxIDValueRE             = regexp.MustCompile(`^(?:\d{9}|\d{10}|\d{12})$`)
-	kppZeroPrefixRE          = regexp.MustCompile(`(?i)^КПП\s*0\s*`)
-	entrepreneurZeroPrefixRE = regexp.MustCompile(`(?i)^0\s+((?:ИП(?:\s|$)|Индивидуальн\S*\s+предпринимател\S*).*)`)
-	budgetCodeRE             = regexp.MustCompile(`^\d{20}$`)
-	oktmoRE                  = regexp.MustCompile(`^\d{8}$`)
-	payerStatusRE            = regexp.MustCompile(`^\d{2}$`)
-	nineDigitsRE             = regexp.MustCompile(`^\d{9}$`)
-	moneyRE                  = regexp.MustCompile(`^\s*([0-9][0-9 ]*)(?:[,.\-]([0-9]{2})|=)?\s*$`)
+	documentTitleRE   = regexp.MustCompile(`(?i)(ПЛАТЕЖНОЕ\s+ПОРУЧЕНИЕ|ПЛАТЕЖНЫЙ\s+ОРДЕР|ПЛАТЕЖНОЕ\s+ТРЕБОВАНИЕ|ИНКАССОВОЕ\s+ПОРУЧЕНИЕ|БАНКОВСКИЙ\s+ОРДЕР)\s*(?:№|N)\s*([^\s]+)`)
+	dateRE            = regexp.MustCompile(`\b(\d{2}\.\d{2}\.\d{4})\b`)
+	accountRE         = regexp.MustCompile(`\b\d{20}\b`)
+	bikRE             = regexp.MustCompile(`\b\d{9}\b`)
+	innRE             = regexp.MustCompile(`(?i)ИНН\s*(\d{12}|\d{10})`)
+	kppRE             = regexp.MustCompile(`(?i)КПП\s*(\d{9})`)
+	innValueRE        = regexp.MustCompile(`^(\d{10}|\d{12})$`)
+	kppValueRE        = regexp.MustCompile(`^\d{9}$`)
+	taxIDValueRE      = regexp.MustCompile(`^(?:\d{9}|\d{10}|\d{12})$`)
+	kppZeroRE         = regexp.MustCompile(`(?i)\bКПП\s*0(?:\s|$)`)
+	kppZeroPrefixRE   = regexp.MustCompile(`(?i)^КПП\s*0\s*`)
+	leadingZeroNameRE = regexp.MustCompile(`^0\s*`)
+	zeroValueRE       = regexp.MustCompile(`^0$`)
+	budgetCodeRE      = regexp.MustCompile(`^\d{20}$`)
+	oktmoRE           = regexp.MustCompile(`^\d{8}$`)
+	payerStatusRE     = regexp.MustCompile(`^\d{2}$`)
+	nineDigitsRE      = regexp.MustCompile(`^\d{9}$`)
+	moneyRE           = regexp.MustCompile(`^\s*([0-9][0-9 ]*)(?:[,.\-]([0-9]{2})|=)?\s*$`)
 )
 
 // ErrDocumentCountMismatch reports that a statement summary and the following
@@ -346,8 +348,10 @@ func parseParty(blocks []pdf.TextBlock, bottom, top float64) payment.Party {
 	var party payment.Party
 	party.Account = formAccountInRegion(blocks, bottom, top)
 	region := blocksInRegion(blocks, bottom, top)
+	zeroKPP := valueForLabel(region, "КПП", zeroValueRE) == "0"
 	for _, block := range region {
 		text := clean(block.Text)
+		zeroKPP = zeroKPP || kppZeroRE.MatchString(text)
 		if match := innRE.FindStringSubmatch(text); len(match) > 0 {
 			party.INN = match[1]
 		}
@@ -362,11 +366,11 @@ func parseParty(blocks []pdf.TextBlock, bottom, top float64) payment.Party {
 		party.KPP = valueForLabel(region, "КПП", kppValueRE)
 	}
 	party.Name = partyNameRegionText(blocks, bottom, top)
-	// Individual entrepreneurs have no KPP. Some forms render the empty value
-	// as "КПП 0" in the same text block as the party name.
+	// Some forms render an empty KPP as zero. Depending on the PDF text layout,
+	// it can be joined to the party name or emitted as a separate leading block.
 	party.Name = clean(kppZeroPrefixRE.ReplaceAllString(party.Name, ""))
-	if party.KPP == "" && len(party.INN) == 12 {
-		party.Name = clean(entrepreneurZeroPrefixRE.ReplaceAllString(party.Name, "$1"))
+	if zeroKPP {
+		party.Name = clean(leadingZeroNameRE.ReplaceAllString(party.Name, ""))
 	}
 	return party
 }
