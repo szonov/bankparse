@@ -57,7 +57,7 @@ func TestParseDocumentPrefersExecutedDate(t *testing.T) {
 	blocks := []pdf.TextBlock{
 		block(60, 730, "ПЛАТЕЖНОЕ ПОРУЧЕНИЕ № 22"),
 		block(320, 730, "29.01.2026"), block(330, 710, "Дата"),
-		block(430, 180, "ИСПОЛНЕНО"), block(435, 160, "02.02.2026"),
+		block(430, 180, "ПРОВЕДЕНО"), block(435, 200, "02 февр. 2026"),
 		block(281, 645, "Сумма"), block(332, 644, "100="),
 		block(60, 643, "ИНН5000000001"), block(332, 605, "40000000000000000002"), block(60, 584, "Плательщик"),
 		block(61, 569, "АО БАНК ПЛАТЕЛЬЩИКА"), block(332, 569, "040000002"), block(332, 555, "30100000000000000002"), block(60, 539, "Банк Плательщика"),
@@ -77,8 +77,18 @@ func TestParseDocumentPrefersExecutedDate(t *testing.T) {
 }
 
 func TestExecutedDateInStampBlock(t *testing.T) {
-	if got := executedDateText([]pdf.TextBlock{block(430, 180, "ИСПОЛНЕНО 03.02.2026")}); got != "03.02.2026" {
-		t.Fatalf("date=%q", got)
+	tests := []struct {
+		stamp string
+		want  string
+	}{
+		{stamp: "ИСПОЛНЕНО 03.02.2026", want: "03.02.2026"},
+		{stamp: "ПРОВЕДЕНО 4 сент. 2026", want: "04.09.2026"},
+		{stamp: "Проведено 15 дек. 2026", want: "15.12.2026"},
+	}
+	for _, test := range tests {
+		if got := executedDateText([]pdf.TextBlock{block(430, 180, test.stamp)}); got != test.want {
+			t.Fatalf("stamp=%q date=%q, want %q", test.stamp, got, test.want)
+		}
 	}
 }
 

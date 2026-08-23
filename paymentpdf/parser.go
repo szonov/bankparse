@@ -19,6 +19,7 @@ import (
 var (
 	documentTitleRE   = regexp.MustCompile(`(?i)(ПЛАТЕЖНОЕ\s+ПОРУЧЕНИЕ|ПЛАТЕЖНЫЙ\s+ОРДЕР|ПЛАТЕЖНОЕ\s+ТРЕБОВАНИЕ|ИНКАССОВОЕ\s+ПОРУЧЕНИЕ|БАНКОВСКИЙ\s+ОРДЕР)\s*(?:№|N)\s*([^\s]+)`)
 	dateRE            = regexp.MustCompile(`\b(\d{2}\.\d{2}\.\d{4})\b`)
+	textualDateRE     = regexp.MustCompile(`(?i)\b(\d{1,2})\s+([а-яё]+)\.?\s+(\d{4})\b`)
 	accountRE         = regexp.MustCompile(`\b\d{20}\b`)
 	bikRE             = regexp.MustCompile(`\b\d{9}\b`)
 	innRE             = regexp.MustCompile(`(?i)ИНН\s*(\d{12}|\d{10})`)
@@ -233,19 +234,53 @@ func parseDocument(blocks []pdf.TextBlock) (payment.Document, error) {
 
 func executedDateText(blocks []pdf.TextBlock) string {
 	stamp, found := findBlock(blocks, func(text string) bool {
-		return strings.Contains(strings.ToUpper(text), "ИСПОЛНЕНО")
+		upper := strings.ToUpper(text)
+		return strings.Contains(upper, "ИСПОЛНЕНО") || strings.Contains(upper, "ПРОВЕДЕНО")
 	})
 	if !found {
 		return ""
 	}
-	if date := dateRE.FindString(clean(stamp.Text)); date != "" {
+	if date := normalizedDateText(stamp.Text); date != "" {
 		return date
 	}
 	date := nearestBlock(blocks, stamp, func(block pdf.TextBlock) bool {
-		return block.Y < stamp.Y && stamp.Y-block.Y <= 80 &&
-			math.Abs(block.X-stamp.X) <= 120 && dateRE.MatchString(clean(block.Text))
+		return math.Abs(block.Y-stamp.Y) <= 80 && math.Abs(block.X-stamp.X) <= 120 &&
+			normalizedDateText(block.Text) != ""
 	})
-	return dateRE.FindString(clean(date.Text))
+	return normalizedDateText(date.Text)
+}
+
+func normalizedDateText(text string) string {
+	text = clean(text)
+	if date := dateRE.FindString(text); date != "" {
+		return date
+	}
+	match := textualDateRE.FindStringSubmatch(text)
+	if match == nil {
+		return ""
+	}
+	month := map[string]int{
+		"янв": 1, "января": 1,
+		"фев": 2, "февр": 2, "февраля": 2,
+		"мар": 3, "март": 3, "марта": 3,
+		"апр": 4, "апреля": 4,
+		"май": 5, "мая": 5,
+		"июн": 6, "июня": 6,
+		"июл": 7, "июля": 7,
+		"авг": 8, "августа": 8,
+		"сен": 9, "сент": 9, "сентября": 9,
+		"окт": 10, "октября": 10,
+		"ноя": 11, "нояб": 11, "ноября": 11,
+		"дек": 12, "декабря": 12,
+	}[strings.ToLower(match[2])]
+	if month == 0 {
+		return ""
+	}
+	day, err := strconv.Atoi(match[1])
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%02d.%02d.%s", day, month, match[3])
 }
 
 func parsePaymentForm(blocks []pdf.TextBlock, document *payment.Document) error {
